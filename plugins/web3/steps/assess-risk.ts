@@ -1,5 +1,6 @@
 import "server-only";
 
+import { buildOpenAICompatibleApiUrl } from "@/lib/openai-compatible";
 import { withPluginMetrics } from "@/lib/metrics/instrumentation/plugin";
 import { type StepInput, withStepLogging } from "@/lib/steps/step-handler";
 import {
@@ -362,7 +363,7 @@ async function callLlmAssessment(
       context
     );
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(buildOpenAICompatibleApiUrl("chat/completions"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

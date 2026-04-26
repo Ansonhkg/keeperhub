@@ -39,11 +39,16 @@ describe("runner-env", () => {
         delete process.env[name];
       }
       process.env.OPENAI_API_KEY = "sk-test";
+      process.env.OPENAI_BASE_URL = "https://llm.example.com/v1";
       process.env.SLACK_API_KEY = "xoxb-test";
 
       const result = getRunnerSystemEnvVars();
       expect(result).toEqual([
         { name: "OPENAI_API_KEY", value: "sk-test" },
+        {
+          name: "OPENAI_BASE_URL",
+          value: "https://llm.example.com/v1",
+        },
         { name: "SLACK_API_KEY", value: "xoxb-test" },
       ]);
     });

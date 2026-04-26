@@ -303,7 +303,7 @@ export function generateWorkflowSDKCode(
     // Default to openai for any other provider
     return {
       providerImport: "import { createOpenAI } from '@ai-sdk/openai';",
-      providerCall: `createOpenAI({ apiKey: process.env.OPENAI_API_KEY! })("${model}")`,
+      providerCall: `createOpenAI({ apiKey: process.env.OPENAI_API_KEY!, ...(process.env.OPENAI_BASE_URL ? { baseURL: process.env.OPENAI_BASE_URL } : {}) })("${model}")`,
     };
   }
 

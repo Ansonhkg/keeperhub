@@ -7,6 +7,7 @@ import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { createTimer, getMetricsCollector } from "@/lib/metrics";
 import { MetricNames } from "@/lib/metrics/types";
 import { getDualAuthContext } from "@/lib/middleware/auth-helpers";
+import { getOpenAICompatibleClientOptions } from "@/lib/openai-compatible";
 import { generateAIActionPrompts } from "@/plugins/registry";
 
 // Simple type for operations
@@ -282,7 +283,7 @@ function getAIModel(
           "OpenAI API key not configured. Set OPENAI_API_KEY environment variable.",
       };
     }
-    const provider = createOpenAI({ apiKey: openaiKey });
+    const provider = createOpenAI(getOpenAICompatibleClientOptions(openaiKey));
     return { success: true, model: provider(modelString) };
   }
 
@@ -309,7 +310,7 @@ function getAIModel(
         "OpenAI API key not configured. Set OPENAI_API_KEY environment variable.",
     };
   }
-  const provider = createOpenAI({ apiKey: openaiKey });
+  const provider = createOpenAI(getOpenAICompatibleClientOptions(openaiKey));
   return { success: true, model: provider(modelString) };
 }
 
