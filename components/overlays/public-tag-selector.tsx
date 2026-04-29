@@ -37,7 +37,6 @@ export function PublicTagSelector({
         }
         setAllPublicTags(merged);
       })
-      // biome-ignore lint/suspicious/noEmptyBlockStatements: intentional silent catch for non-critical tag fetch
       .catch(() => {});
   }, [initialTags]);
 

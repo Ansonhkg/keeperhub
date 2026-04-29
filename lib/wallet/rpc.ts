@@ -64,10 +64,7 @@ function delay(ms: number): Promise<void> {
  * Adds randomized jitter to avoid lockstep retries across concurrent callers.
  * Guaranteed to return at most `RPC_RETRY_CONFIG.ABSOLUTE_MAX_BACKOFF_MS`.
  */
-export function getRpcBackoffMs(
-  attempt: number,
-  kind: RpcFailureKind
-): number {
+export function getRpcBackoffMs(attempt: number, kind: RpcFailureKind): number {
   const schedule =
     kind === "rate_limit"
       ? RPC_RETRY_CONFIG.RATE_LIMIT
@@ -142,9 +139,9 @@ export async function rpcCall(
     let response: Response;
     try {
       response = await fetch(rpcUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       });
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));

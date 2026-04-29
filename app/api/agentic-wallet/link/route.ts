@@ -39,6 +39,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { agenticWallets } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 export const dynamic = "force-dynamic";
 
@@ -46,107 +47,110 @@ type LinkRequestBody = {
   subOrgId?: unknown;
 };
 
-export async function POST(request: Request): Promise<Response> {
-  const rawBody = await request.text();
+export const POST = withTracedApiHandler(
+  "POST /api/agentic-wallet/link",
+  async function POST(request: Request): Promise<Response> {
+    const rawBody = await request.text();
 
-  // 1. HMAC first: proof-of-possession of the sub-org's secret. Runs before
-  // the session read so a caller without HMAC headers cannot probe session
-  // state (T-33-05 mitigation).
-  const hmacResult = await verifyHmacRequest(request, rawBody);
-  if (!hmacResult.ok) {
-    return Response.json(
-      { error: hmacResult.error, code: "HMAC_INVALID" },
-      { status: hmacResult.status }
-    );
-  }
-
-  // 2. Session: target user for the link.
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session?.user) {
-    return Response.json(
-      { error: "Unauthorized", code: "MISSING_SESSION" },
-      { status: 401 }
-    );
-  }
-
-  // 3. Body sanity.
-  let body: LinkRequestBody;
-  try {
-    body = JSON.parse(rawBody) as LinkRequestBody;
-  } catch {
-    return Response.json(
-      { error: "Invalid JSON", code: "INVALID_JSON" },
-      { status: 400 }
-    );
-  }
-  if (typeof body.subOrgId !== "string" || body.subOrgId.length === 0) {
-    return Response.json(
-      { error: "subOrgId required", code: "MISSING_SUB_ORG" },
-      { status: 400 }
-    );
-  }
-
-  // 4. Tamper guard: body sub-org must match HMAC-verified sub-org.
-  if (body.subOrgId !== hmacResult.subOrgId) {
-    return Response.json(
-      { error: "sub-org mismatch", code: "SUB_ORG_MISMATCH" },
-      { status: 403 }
-    );
-  }
-
-  const userId = session.user.id;
-  const subOrgId = body.subOrgId;
-
-  try {
-    const updated = await db
-      .update(agenticWallets)
-      .set({ linkedUserId: userId, linkedAt: new Date() })
-      .where(
-        and(
-          eq(agenticWallets.subOrgId, subOrgId),
-          isNull(agenticWallets.linkedUserId)
-        )
-      )
-      .returning({ id: agenticWallets.id });
-
-    if (updated.length === 0) {
-      // Zero rows: either wallet is already linked, or wallet does not exist.
-      // Re-read to distinguish the three cases.
-      const existing = await db
-        .select({ linkedUserId: agenticWallets.linkedUserId })
-        .from(agenticWallets)
-        .where(eq(agenticWallets.subOrgId, subOrgId))
-        .limit(1);
-
-      if (existing.length === 0) {
-        return Response.json(
-          { error: "Wallet not found", code: "WALLET_NOT_FOUND" },
-          { status: 404 }
-        );
-      }
-      if (existing[0]?.linkedUserId === userId) {
-        // Idempotent: same user re-linking is a no-op success.
-        return Response.json({ ok: true, already: true }, { status: 200 });
-      }
+    // 1. HMAC first: proof-of-possession of the sub-org's secret. Runs before
+    // the session read so a caller without HMAC headers cannot probe session
+    // state (T-33-05 mitigation).
+    const hmacResult = await verifyHmacRequest(request, rawBody);
+    if (!hmacResult.ok) {
       return Response.json(
-        {
-          error: "Wallet already linked to another user",
-          code: "ALREADY_LINKED",
-        },
-        { status: 409 }
+        { error: hmacResult.error, code: "HMAC_INVALID" },
+        { status: hmacResult.status }
       );
     }
 
-    return Response.json({ ok: true }, { status: 200 });
-  } catch (error) {
-    logSystemError(ErrorCategory.DATABASE, "[Agentic] /link failed", error, {
-      endpoint: "/api/agentic-wallet/link",
-      subOrgId,
-      userId,
-    });
-    return Response.json(
-      { error: "Link failed", code: "LINK_FAILED" },
-      { status: 500 }
-    );
+    // 2. Session: target user for the link.
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session?.user) {
+      return Response.json(
+        { error: "Unauthorized", code: "MISSING_SESSION" },
+        { status: 401 }
+      );
+    }
+
+    // 3. Body sanity.
+    let body: LinkRequestBody;
+    try {
+      body = JSON.parse(rawBody) as LinkRequestBody;
+    } catch {
+      return Response.json(
+        { error: "Invalid JSON", code: "INVALID_JSON" },
+        { status: 400 }
+      );
+    }
+    if (typeof body.subOrgId !== "string" || body.subOrgId.length === 0) {
+      return Response.json(
+        { error: "subOrgId required", code: "MISSING_SUB_ORG" },
+        { status: 400 }
+      );
+    }
+
+    // 4. Tamper guard: body sub-org must match HMAC-verified sub-org.
+    if (body.subOrgId !== hmacResult.subOrgId) {
+      return Response.json(
+        { error: "sub-org mismatch", code: "SUB_ORG_MISMATCH" },
+        { status: 403 }
+      );
+    }
+
+    const userId = session.user.id;
+    const subOrgId = body.subOrgId;
+
+    try {
+      const updated = await db
+        .update(agenticWallets)
+        .set({ linkedUserId: userId, linkedAt: new Date() })
+        .where(
+          and(
+            eq(agenticWallets.subOrgId, subOrgId),
+            isNull(agenticWallets.linkedUserId)
+          )
+        )
+        .returning({ id: agenticWallets.id });
+
+      if (updated.length === 0) {
+        // Zero rows: either wallet is already linked, or wallet does not exist.
+        // Re-read to distinguish the three cases.
+        const existing = await db
+          .select({ linkedUserId: agenticWallets.linkedUserId })
+          .from(agenticWallets)
+          .where(eq(agenticWallets.subOrgId, subOrgId))
+          .limit(1);
+
+        if (existing.length === 0) {
+          return Response.json(
+            { error: "Wallet not found", code: "WALLET_NOT_FOUND" },
+            { status: 404 }
+          );
+        }
+        if (existing[0]?.linkedUserId === userId) {
+          // Idempotent: same user re-linking is a no-op success.
+          return Response.json({ ok: true, already: true }, { status: 200 });
+        }
+        return Response.json(
+          {
+            error: "Wallet already linked to another user",
+            code: "ALREADY_LINKED",
+          },
+          { status: 409 }
+        );
+      }
+
+      return Response.json({ ok: true }, { status: 200 });
+    } catch (error) {
+      logSystemError(ErrorCategory.DATABASE, "[Agentic] /link failed", error, {
+        endpoint: "/api/agentic-wallet/link",
+        subOrgId,
+        userId,
+      });
+      return Response.json(
+        { error: "Link failed", code: "LINK_FAILED" },
+        { status: 500 }
+      );
+    }
   }
-}
+);

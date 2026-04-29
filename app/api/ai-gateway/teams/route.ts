@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { accounts } from "@/lib/db/schema";
 import { ErrorCategory, logUserError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 export type VercelTeam = {
   id: string;
@@ -71,7 +72,7 @@ async function fetchTeams(accessToken: string): Promise<VercelTeam[]> {
  * GET /api/ai-gateway/teams
  * Fetch Vercel teams for the authenticated user
  */
-export async function GET(request: Request) {
+export const GET = withTracedApiHandler("GET /api/ai-gateway/teams", async function GET(request: Request) {
   if (!isAiGatewayManagedKeysEnabled()) {
     return Response.json({ error: "Feature not enabled" }, { status: 403 });
   }
@@ -125,4 +126,4 @@ export async function GET(request: Request) {
     );
     return Response.json({ error: "Failed to fetch teams" }, { status: 500 });
   }
-}
+});

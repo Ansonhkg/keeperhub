@@ -88,7 +88,6 @@ export function SqlTemplateEditor({
     templateMapRef.current = map;
   }, [value]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: nodesRef is a stable ref; we read .current at call time intentionally
   const resolveNodeIdByLabel = useCallback(
     (displayKey: string): string | undefined => {
       const dotIndex = displayKey.indexOf(".");
@@ -129,7 +128,6 @@ export function SqlTemplateEditor({
   );
 
   // Lazy-load last execution logs (same pattern as template-autocomplete.tsx)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: currentWorkflowIdRef is a stable ref read at async resolution time, not a reactive dependency
   useEffect(() => {
     const alreadyHaveLogs = lastExecutionLogs.workflowId === currentWorkflowId;
     const fetchAlreadyInProgress =
@@ -142,7 +140,6 @@ export function SqlTemplateEditor({
     lastFetchWorkflowIdRef.current = workflowId;
     let cancelled = false;
 
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: async fetch with cancellation guard mirrors template-autocomplete.tsx
     const fetchLogs = async (): Promise<void> => {
       try {
         const executions = await api.workflow.getExecutions(workflowId);
@@ -343,7 +340,6 @@ export function SqlTemplateEditor({
     updateDecorations();
   }, [updateDecorations]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: buildSuggestions reads from refs to always get current state; adding it would cause Monaco to re-mount on every render
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
       editorRef.current = editor;

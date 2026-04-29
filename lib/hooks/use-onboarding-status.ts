@@ -102,7 +102,6 @@ export function useOnboardingStatus(): OnboardingStatus {
     persistGuideState("dismissed");
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetchKey intentionally triggers re-fetch
   useEffect(() => {
     if (!isAuthenticated || guideState === "dismissed") {
       setIsLoading(false);

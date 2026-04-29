@@ -6,6 +6,7 @@ import {
   findActionById,
   getIntegration as getPluginDefinition,
 } from "@/plugins/registry";
+import { withServerTraceSpan } from "../trace/server-span";
 import type { IntegrationConfig, IntegrationType } from "../types/integration";
 import { db } from "./index";
 import { integrations, type NewIntegration } from "./schema";
@@ -171,10 +172,24 @@ export async function getIntegrations(
     conditions.push(eq(integrations.type, type));
   }
 
-  const results = await db
-    .select()
-    .from(integrations)
-    .where(and(...conditions));
+  const results = await withServerTraceSpan(
+    {
+      attributes: {
+        entity: "integrations",
+        filteredByOrganization: Boolean(organizationId),
+        operation: "select",
+        type: type ?? "all",
+      },
+      kind: "db",
+      label: "Select integrations",
+      step: "db.integrations.select",
+    },
+    () =>
+      db
+        .select()
+        .from(integrations)
+        .where(and(...conditions))
+  );
 
   return results.map((integration) => ({
     ...integration,
@@ -198,11 +213,24 @@ export async function getIntegration(
       ]
     : [eq(integrations.id, integrationId), eq(integrations.userId, userId)];
 
-  const result = await db
-    .select()
-    .from(integrations)
-    .where(and(...conditions))
-    .limit(1);
+  const result = await withServerTraceSpan(
+    {
+      attributes: {
+        entity: "integrations",
+        filteredByOrganization: Boolean(organizationId),
+        operation: "select-one",
+      },
+      kind: "db",
+      label: "Select integration",
+      step: "db.integrations.select-one",
+    },
+    () =>
+      db
+        .select()
+        .from(integrations)
+        .where(and(...conditions))
+        .limit(1)
+  );
 
   if (result.length === 0) {
     return null;
@@ -220,11 +248,23 @@ export async function getIntegration(
 export async function getIntegrationById(
   integrationId: string
 ): Promise<DecryptedIntegration | null> {
-  const result = await db
-    .select()
-    .from(integrations)
-    .where(eq(integrations.id, integrationId))
-    .limit(1);
+  const result = await withServerTraceSpan(
+    {
+      attributes: {
+        entity: "integrations",
+        operation: "select-by-id",
+      },
+      kind: "db",
+      label: "Select integration by id",
+      step: "db.integrations.select-by-id",
+    },
+    () =>
+      db
+        .select()
+        .from(integrations)
+        .where(eq(integrations.id, integrationId))
+        .limit(1)
+  );
 
   if (result.length === 0) {
     return null;
@@ -254,16 +294,29 @@ export async function createIntegration(
   const { userId, name, type, config, organizationId } = options;
   const encryptedConfig = encryptConfig(config);
 
-  const [result] = await db
-    .insert(integrations)
-    .values({
-      userId,
-      name,
-      type,
-      config: encryptedConfig,
-      organizationId,
-    })
-    .returning();
+  const [result] = await withServerTraceSpan(
+    {
+      attributes: {
+        entity: "integrations",
+        operation: "insert",
+        type,
+      },
+      kind: "db",
+      label: "Insert integration",
+      step: "db.integrations.insert",
+    },
+    () =>
+      db
+        .insert(integrations)
+        .values({
+          config: encryptedConfig,
+          name,
+          organizationId,
+          type,
+          userId,
+        })
+        .returning()
+  );
 
   return {
     ...result,
@@ -310,11 +363,24 @@ export async function updateIntegration(
       ]
     : [eq(integrations.id, integrationId), eq(integrations.userId, userId)];
 
-  const [result] = await db
-    .update(integrations)
-    .set(updateData)
-    .where(and(...conditions))
-    .returning();
+  const [result] = await withServerTraceSpan(
+    {
+      attributes: {
+        entity: "integrations",
+        filteredByOrganization: Boolean(organizationId),
+        operation: "update",
+      },
+      kind: "db",
+      label: "Update integration",
+      step: "db.integrations.update",
+    },
+    () =>
+      db
+        .update(integrations)
+        .set(updateData)
+        .where(and(...conditions))
+        .returning()
+  );
 
   if (!result) {
     return null;
@@ -342,10 +408,23 @@ export async function deleteIntegration(
       ]
     : [eq(integrations.id, integrationId), eq(integrations.userId, userId)];
 
-  const result = await db
-    .delete(integrations)
-    .where(and(...conditions))
-    .returning();
+  const result = await withServerTraceSpan(
+    {
+      attributes: {
+        entity: "integrations",
+        filteredByOrganization: Boolean(organizationId),
+        operation: "delete",
+      },
+      kind: "db",
+      label: "Delete integration",
+      step: "db.integrations.delete",
+    },
+    () =>
+      db
+        .delete(integrations)
+        .where(and(...conditions))
+        .returning()
+  );
 
   return result.length > 0;
 }

@@ -8,6 +8,7 @@ import { workflows } from "@/lib/db/schema";
 import { generateId } from "@/lib/utils/id";
 import { remapTemplateRefsInString } from "@/lib/utils/template";
 import { sanitizeWorkflowData } from "@/lib/workflow/sanitize-nodes";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 // Node type for type-safe node manipulation
 type WorkflowNodeLike = {
   id: string;
@@ -106,8 +107,7 @@ function updateEdgeReferences(
   }));
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Sequential workflow duplication logic
-export async function POST(
+export const POST = withTracedApiHandler("POST /api/workflows/:workflowId/duplicate", async function POST(
   request: Request,
   context: { params: Promise<{ workflowId: string }> }
 ) {
@@ -250,4 +250,4 @@ export async function POST(
       { status: 500 }
     );
   }
-}
+});

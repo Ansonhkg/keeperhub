@@ -50,12 +50,10 @@ describe("toJsonSafe", () => {
   });
 
   it("omits functions", () => {
-    // biome-ignore lint/suspicious/noEmptyBlockStatements: testing empty function serialization
     expect(toJsonSafe(() => {})).toBe(undefined);
   });
 
   it("omits function values in objects", () => {
-    // biome-ignore lint/suspicious/noEmptyBlockStatements: testing empty function in object
     const obj = { a: 1, fn: () => {}, b: "two" };
     expect(toJsonSafe(obj)).toEqual({ a: 1, b: "two" });
   });

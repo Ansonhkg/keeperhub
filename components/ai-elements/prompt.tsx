@@ -268,6 +268,23 @@ export function AIPrompt({ workflowId, onWorkflowCreated }: AIPromptProps) {
         inputRef.current?.blur();
       } catch (error) {
         console.error("Failed to generate workflow:", error);
+        window.dispatchEvent(
+          new CustomEvent("keeperhub:trace-error", {
+            detail: {
+              attributes: {
+                prompt,
+                workflowId,
+              },
+              errorName: error instanceof Error ? error.name : "WorkflowPromptError",
+              label: "AI workflow generation failed",
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to generate workflow",
+              step: "ai.workflow-prompt.generate",
+            },
+          })
+        );
         toast.error("Failed to generate workflow");
       } finally {
         setIsGenerating(false);
@@ -296,7 +313,7 @@ export function AIPrompt({ workflowId, onWorkflowCreated }: AIPromptProps) {
       {/* Always visible prompt input */}
       <div
         ref={containerRef}
-        className="pointer-events-auto absolute bottom-4 left-1/2 z-10 -translate-x-1/2 px-4"
+        className="pointer-events-auto absolute bottom-[calc(1rem+var(--trace-widget-docked-offset,0px))] left-1/2 z-10 -translate-x-1/2 px-4"
         style={{
           width: isExpanded ? "min(100%, 42rem)" : "20rem",
           transition: "width 150ms ease-out",
@@ -395,4 +412,3 @@ export function AIPrompt({ workflowId, onWorkflowCreated }: AIPromptProps) {
     </>
   );
 }
-

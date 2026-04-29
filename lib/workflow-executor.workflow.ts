@@ -8,6 +8,8 @@ import {
   BUILTIN_NODE_LABEL,
   getBuiltinVariables,
 } from "@/lib/builtin-variables";
+import { createSpanId } from "@keeperhub/trace-sdk/core";
+import type { TraceContext } from "@keeperhub/trace-sdk/server";
 import {
   ErrorCategory,
   logSystemError,
@@ -60,6 +62,10 @@ import { LEGACY_ACTION_MAPPINGS } from "@/plugins/legacy-mappings";
 import type { StepContext } from "./steps/step-handler";
 import { triggerStep } from "./steps/trigger";
 import { deserializeEventTriggerData, getErrorMessageAsync } from "./utils";
+import {
+  recordWorkflowSpanLinkStep,
+  startWorkflowTraceRunStep,
+} from "./steps/trace-event";
 import type { WorkflowEdge, WorkflowNode } from "./workflow-store";
 
 // System actions that don't have plugins - maps to module import functions
@@ -115,12 +121,12 @@ export type WorkflowExecutionInput = {
   // Identifiers attached to every workflow error log line
   organizationSlug?: string;
   ownerId?: string;
+  traceContext?: TraceContext;
 };
 
 /**
  * Helper to replace template variables in conditions
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: KEEP-1284 validation requires checking multiple error conditions
 function replaceTemplateVariable(
   _match: string,
   nodeId: string,
@@ -230,7 +236,6 @@ type ConditionEvalResult = {
  * Only comparison operators, logical operators, and whitelisted methods are allowed.
  */
 // Exported for testing - KEEP-1284
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: KEEP-1284 validation requires comprehensive error checking
 export function evaluateConditionExpression(
   conditionExpression: unknown,
   outputs: NodeOutputs,
@@ -893,7 +898,6 @@ function computeNextDepth(
  * Collect node. Uses BFS with depth tracking so nested For Each / Collect
  * pairs are correctly skipped.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: BFS with depth tracking requires multiple condition branches
 export function identifyLoopBody(
   forEachNodeId: string,
   edgesBySource: Map<string, string[]>,
@@ -1050,7 +1054,6 @@ export function resolveArraySource(
 /**
  * Main workflow executor function
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Core workflow engine function requires comprehensive logic
 export async function executeWorkflow(input: WorkflowExecutionInput) {
   "use workflow";
 
@@ -1066,6 +1069,7 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
     organizationName,
     organizationSlug,
     ownerId,
+    traceContext: inputTraceContext,
   } = input;
 
   console.log("[Workflow Executor] Input:", {
@@ -1141,6 +1145,99 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
     }
     return "manual";
   })();
+
+  let workflowTraceContext = inputTraceContext;
+  if (!(workflowTraceContext || !executionId || !workflowId)) {
+    workflowTraceContext =
+      (await startWorkflowTraceRunStep({
+        executionId,
+        organizationId,
+        trigger: workflowTriggerType,
+        userId: ownerId ?? "unknown",
+        workflowId,
+      })) ?? undefined;
+  }
+
+  const traceSpanIdsByNode = new Map<string, string>();
+
+  function traceNodeKey(
+    nodeId: string,
+    iterationMeta?: { iterationIndex: number; forEachNodeId: string }
+  ) {
+    return iterationMeta
+      ? `${iterationMeta.forEachNodeId}:${iterationMeta.iterationIndex}:${nodeId}`
+      : nodeId;
+  }
+
+  function getNodeTraceSpanId(
+    nodeId: string,
+    iterationMeta?: { iterationIndex: number; forEachNodeId: string }
+  ) {
+    const key = traceNodeKey(nodeId, iterationMeta);
+    let spanId = traceSpanIdsByNode.get(key);
+    if (!spanId) {
+      spanId = createSpanId();
+      traceSpanIdsByNode.set(key, spanId);
+    }
+    return spanId;
+  }
+
+  function getNodeTraceParentSpanId(
+    nodeId: string,
+    iterationMeta?: { iterationIndex: number; forEachNodeId: string }
+  ) {
+    if (iterationMeta) {
+      return getNodeTraceSpanId(iterationMeta.forEachNodeId);
+    }
+
+    const incomingNodeIds = edgesByTarget.get(nodeId) ?? [];
+    return incomingNodeIds.length === 1
+      ? getNodeTraceSpanId(incomingNodeIds[0])
+      : null;
+  }
+
+  function buildTraceStepContext(
+    nodeId: string,
+    iterationMeta?: { iterationIndex: number; forEachNodeId: string }
+  ): Pick<StepContext, "traceContext" | "traceParentSpanId" | "traceSpanId"> {
+    if (!workflowTraceContext) {
+      return {};
+    }
+
+    return {
+      traceContext: workflowTraceContext,
+      traceParentSpanId: getNodeTraceParentSpanId(nodeId, iterationMeta),
+      traceSpanId: getNodeTraceSpanId(nodeId, iterationMeta),
+    };
+  }
+
+  async function recordNodeTraceLinks(
+    fromNodeId: string,
+    targetNodeIds: string[],
+    iterationMeta?: { iterationIndex: number; forEachNodeId: string }
+  ) {
+    if (!workflowTraceContext) {
+      return;
+    }
+
+    const linkedSpanId = getNodeTraceSpanId(fromNodeId, iterationMeta);
+    await Promise.all(
+      targetNodeIds.map((targetNodeId) =>
+        recordWorkflowSpanLinkStep({
+          attributes: {
+            forEachNodeId: iterationMeta?.forEachNodeId ?? "",
+            fromNodeId,
+            iterationIndex: iterationMeta?.iterationIndex ?? null,
+            toNodeId: targetNodeId,
+          },
+          linkedSpanId,
+          spanId: getNodeTraceSpanId(targetNodeId, iterationMeta),
+          traceContext: workflowTraceContext,
+          type: "edge",
+        })
+      )
+    );
+  }
 
   // Helper to get a meaningful node name
   function getNodeName(node: WorkflowNode): string {
@@ -1230,7 +1327,6 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
    * Uses scoped outputs so loop variable references resolve correctly
    * and body-specific edges so traversal stays within the loop body.
    */
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Body execution mirrors main executeNode with loop-specific scoping
   async function executeBodyNode(
     nodeId: string,
     bodyVisited: Set<string>,
@@ -1304,6 +1400,7 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
 
       const stepContext: StepContext = {
         executionId,
+        ...buildTraceStepContext(node.id, iterationMeta),
         nodeId: node.id,
         nodeName: getNodeName(node),
         nodeType: actionType,
@@ -1358,9 +1455,10 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
           currentResults: bodyResults,
           currentVisited: bodyVisited,
           currentEdgesBySource: bodyEdgesBySource,
-          continueAfterCollect: async (collectId) => {
-            const nextNodes = bodyEdgesBySource.get(collectId) ?? [];
-            for (const next of nextNodes) {
+            continueAfterCollect: async (collectId) => {
+              const nextNodes = bodyEdgesBySource.get(collectId) ?? [];
+              await recordNodeTraceLinks(collectId, nextNodes, iterationMeta);
+              for (const next of nextNodes) {
               await executeBodyNode(
                 next,
                 bodyVisited,
@@ -1383,6 +1481,7 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
           bodyHandleMap,
           bodyEdgesBySource
         );
+        await recordNodeTraceLinks(nodeId, conditionTargets, iterationMeta);
         for (const next of conditionTargets) {
           await executeBodyNode(
             next,
@@ -1401,6 +1500,7 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
       // Continue to downstream body nodes for non-condition actions.
       if (actionType !== "Condition") {
         const nextNodes = bodyEdgesBySource.get(nodeId) ?? [];
+        await recordNodeTraceLinks(nodeId, nextNodes, iterationMeta);
         for (const next of nextNodes) {
           await executeBodyNode(
             next,
@@ -1424,7 +1524,6 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
   // For Each: iteration orchestrator
   // -------------------------------------------------------------------
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Orchestrates loop iteration with error handling and result collection
   async function handleForEachExecution(params: {
     forEachNodeId: string;
     forEachNode: WorkflowNode;
@@ -1472,7 +1571,6 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
     // 3. Single iteration executor
     const mapExpression = processedConfig.mapExpression as string | undefined;
 
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: iteration logic has inherent complexity from scoped output capture, body execution, and map expression
     async function executeIteration(
       item: unknown,
       index: number
@@ -1502,6 +1600,7 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
       const iterationMeta = { iterationIndex: index, forEachNodeId };
 
       for (const bodyNodeId of firstBodyNodes) {
+        await recordNodeTraceLinks(forEachNodeId, [bodyNodeId], iterationMeta);
         await executeBodyNode(
           bodyNodeId,
           bodyVisited,
@@ -1602,6 +1701,7 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
           ...collectData,
           _context: {
             executionId,
+            ...buildTraceStepContext(collectNodeId),
             nodeId: collectNodeId,
             nodeName: collectLabel,
             nodeType: "Collect",
@@ -1670,6 +1770,7 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
     );
 
     if (readyIds.length > 0) {
+      await recordNodeTraceLinks(fromNodeId, readyIds);
       const settled = await Promise.allSettled(
         readyIds.map((id) => executeNode(id, visited))
       );
@@ -1678,7 +1779,6 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
   }
 
   // Helper to execute a single node
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Node execution requires type checking and error handling
   async function executeNode(nodeId: string, visited: Set<string> = new Set()) {
     console.log("[Workflow Executor] Executing node:", nodeId);
 
@@ -1799,6 +1899,7 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
         // Build context for logging
         const triggerContext: StepContext = {
           executionId,
+          ...buildTraceStepContext(node.id),
           nodeId: node.id,
           nodeName: getNodeName(node),
           nodeType: node.data.type,
@@ -1845,6 +1946,7 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
         // Build step context for logging (stepHandler will handle the logging)
         const stepContext: StepContext = {
           executionId,
+          ...buildTraceStepContext(node.id),
           nodeId: node.id,
           nodeName: getNodeName(node),
           nodeType: actionType,
@@ -2144,6 +2246,7 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
               ? undefined
               : Object.values(results).find((r) => !r.success)?.error,
             startTime: workflowStartTime,
+            traceContext: workflowTraceContext,
           },
         });
       } catch (completeError) {
@@ -2191,6 +2294,7 @@ export async function executeWorkflow(input: WorkflowExecutionInput) {
             status: "error",
             error: errorMessage,
             startTime: Date.now(),
+            traceContext: workflowTraceContext,
           },
         });
       } catch (logError) {

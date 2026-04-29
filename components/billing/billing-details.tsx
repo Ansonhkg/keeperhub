@@ -57,7 +57,6 @@ export function BillingDetails(): React.ReactElement {
     }
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: orgId drives re-fetch on org switch
   useEffect(() => {
     fetchDetails().catch(() => undefined);
   }, [fetchDetails, orgId]);

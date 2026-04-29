@@ -63,7 +63,6 @@ export function CronScheduleBuilder({
   onChange,
   disabled,
 }: CronScheduleBuilderProps): React.ReactNode {
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only compute on mount
   const initialSimple = useMemo(() => parseCronToSimple(value), []);
 
   const [tab, setTab] = useState<string>(
@@ -73,7 +72,6 @@ export function CronScheduleBuilder({
     initialSimple ?? { frequency: "daily", hour: 9, minute: 0 }
   );
   const [advancedValue, setAdvancedValue] = useState(value);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only compute on mount
   const [isCustom, setIsCustom] = useState<boolean>(
     () => initialSimple !== null && findPresetKey(value) === undefined
   );

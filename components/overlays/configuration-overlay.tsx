@@ -83,7 +83,6 @@ function getCodeFilename(node: {
 
 type ConfigurationOverlayProps = OverlayComponentProps;
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex UI logic with multiple conditions
 export function ConfigurationOverlay({ overlayId }: ConfigurationOverlayProps) {
   const { push, closeAll } = useOverlay();
   const [selectedNodeId] = useAtom(selectedNodeAtom);

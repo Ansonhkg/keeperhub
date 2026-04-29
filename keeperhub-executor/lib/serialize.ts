@@ -14,7 +14,6 @@
  * - Functions -> omitted
  * - Circular references -> "[Circular]"
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: type-dispatch over 10+ JS types is inherently branchy
 export function toJsonSafe(obj: unknown, seen = new WeakSet()): unknown {
   if (obj === null || obj === undefined) {
     return null;

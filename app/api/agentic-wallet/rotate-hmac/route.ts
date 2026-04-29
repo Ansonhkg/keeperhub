@@ -38,67 +38,71 @@ import { insertHmacSecret } from "@/lib/agentic-wallet/hmac-secret-store";
 import { db } from "@/lib/db";
 import { agenticWalletHmacSecrets } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 export const dynamic = "force-dynamic";
 
 const GRACE_MS = 24 * 60 * 60 * 1000;
 const SECRET_BYTES = 32;
 
-export async function POST(request: Request): Promise<Response> {
-  const rawBody = await request.text();
-  const auth = await verifyHmacRequest(request, rawBody);
-  if (!auth.ok) {
-    return Response.json({ error: auth.error }, { status: auth.status });
-  }
+export const POST = withTracedApiHandler(
+  "POST /api/agentic-wallet/rotate-hmac",
+  async function POST(request: Request): Promise<Response> {
+    const rawBody = await request.text();
+    const auth = await verifyHmacRequest(request, rawBody);
+    if (!auth.ok) {
+      return Response.json({ error: auth.error }, { status: auth.status });
+    }
 
-  try {
-    const rows = await db
-      .select({ keyVersion: agenticWalletHmacSecrets.keyVersion })
-      .from(agenticWalletHmacSecrets)
-      .where(eq(agenticWalletHmacSecrets.subOrgId, auth.subOrgId))
-      .orderBy(desc(agenticWalletHmacSecrets.keyVersion))
-      .limit(1);
+    try {
+      const rows = await db
+        .select({ keyVersion: agenticWalletHmacSecrets.keyVersion })
+        .from(agenticWalletHmacSecrets)
+        .where(eq(agenticWalletHmacSecrets.subOrgId, auth.subOrgId))
+        .orderBy(desc(agenticWalletHmacSecrets.keyVersion))
+        .limit(1);
 
-    const currentVersion = rows[0]?.keyVersion ?? 0;
-    const newVersion = currentVersion + 1;
-    const newSecret = randomBytes(SECRET_BYTES).toString("hex");
+      const currentVersion = rows[0]?.keyVersion ?? 0;
+      const newVersion = currentVersion + 1;
+      const newSecret = randomBytes(SECRET_BYTES).toString("hex");
 
-    // Insert the new active row first so the subsequent grace-window UPDATE
-    // can exclude it by keyVersion. insertHmacSecret defaults expiresAt to
-    // null, which means "active indefinitely".
-    await insertHmacSecret(auth.subOrgId, newVersion, newSecret);
+      // Insert the new active row first so the subsequent grace-window UPDATE
+      // can exclude it by keyVersion. insertHmacSecret defaults expiresAt to
+      // null, which means "active indefinitely".
+      await insertHmacSecret(auth.subOrgId, newVersion, newSecret);
 
-    // Single UPDATE: stamp every prior still-active row with a 24h grace
-    // window, excluding the row we just inserted so it stays active.
-    const graceUntil = new Date(Date.now() + GRACE_MS);
-    await db
-      .update(agenticWalletHmacSecrets)
-      .set({ expiresAt: graceUntil })
-      .where(
-        and(
-          eq(agenticWalletHmacSecrets.subOrgId, auth.subOrgId),
-          isNull(agenticWalletHmacSecrets.expiresAt),
-          ne(agenticWalletHmacSecrets.keyVersion, newVersion)
-        )
+      // Single UPDATE: stamp every prior still-active row with a 24h grace
+      // window, excluding the row we just inserted so it stays active.
+      const graceUntil = new Date(Date.now() + GRACE_MS);
+      await db
+        .update(agenticWalletHmacSecrets)
+        .set({ expiresAt: graceUntil })
+        .where(
+          and(
+            eq(agenticWalletHmacSecrets.subOrgId, auth.subOrgId),
+            isNull(agenticWalletHmacSecrets.expiresAt),
+            ne(agenticWalletHmacSecrets.keyVersion, newVersion)
+          )
+        );
+
+      return Response.json(
+        { newSecret, keyVersion: newVersion },
+        { status: 200 }
       );
-
-    return Response.json(
-      { newSecret, keyVersion: newVersion },
-      { status: 200 }
-    );
-  } catch (error) {
-    logSystemError(
-      ErrorCategory.DATABASE,
-      "[Agentic] /rotate-hmac failed",
-      error,
-      {
-        endpoint: "/api/agentic-wallet/rotate-hmac",
-        subOrgId: auth.subOrgId,
-      }
-    );
-    return Response.json(
-      { error: "Rotate failed", code: "INTERNAL" },
-      { status: 500 }
-    );
+    } catch (error) {
+      logSystemError(
+        ErrorCategory.DATABASE,
+        "[Agentic] /rotate-hmac failed",
+        error,
+        {
+          endpoint: "/api/agentic-wallet/rotate-hmac",
+          subOrgId: auth.subOrgId,
+        }
+      );
+      return Response.json(
+        { error: "Rotate failed", code: "INTERNAL" },
+        { status: 500 }
+      );
+    }
   }
-}
+);

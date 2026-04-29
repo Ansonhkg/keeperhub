@@ -10,12 +10,9 @@ import type {
 // Mock SQS enqueue - prevent real AWS calls
 // ---------------------------------------------------------------------------
 
-vi.mock(
-  "../../keeperhub-scheduler/block-dispatcher/sqs-enqueue.js",
-  () => ({
-    enqueueBlockTrigger: vi.fn().mockResolvedValue(undefined),
-  })
-);
+vi.mock("../../keeperhub-scheduler/block-dispatcher/sqs-enqueue.js", () => ({
+  enqueueBlockTrigger: vi.fn().mockResolvedValue(undefined),
+}));
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket that supports ping/pong and close events
@@ -58,9 +55,7 @@ class MockProvider {
     return 100;
   }
 
-  async getBlock(
-    blockNumber: number
-  ): Promise<{
+  async getBlock(blockNumber: number): Promise<{
     hash: string;
     timestamp: number;
     parentHash: string;
@@ -101,7 +96,8 @@ class MockProvider {
 // ---------------------------------------------------------------------------
 
 let providerInstances: MockProvider[] = [];
-let providerFactory: (url: string) => MockProvider = (url) => new MockProvider(url);
+let providerFactory: (url: string) => MockProvider = (url) =>
+  new MockProvider(url);
 
 vi.mock("ethers", () => ({
   ethers: {
@@ -659,7 +655,7 @@ describe("ChainMonitor", () => {
 
       // Advance past the probe interval; probe builds throwaway primary,
       // succeeds, triggers reconnect cycle which lands on primary again.
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(2000);
 
       // At least one new provider was created (the probe), and the active
       // provider should now be primary again.
@@ -701,7 +697,7 @@ describe("ChainMonitor", () => {
       // Spy on console.warn to confirm probe failure log is short
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(2000);
 
       // Still alive, still on fallback
       expect(monitor.isAlive()).toBe(true);

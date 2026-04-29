@@ -8,6 +8,7 @@ import { projects, publicTags, tags, workflowExecutions, workflowPublicTags, wor
 import { syncWorkflowSchedule } from "@/lib/schedule-service";
 import { sanitizeDescription } from "@/lib/sanitize-description";
 import { sanitizeWorkflowData } from "@/lib/workflow/sanitize-nodes";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 async function fetchWorkflowPublicTags(
   workflowId: string
 ): Promise<Array<{ id: string; name: string; slug: string }>> {
@@ -51,7 +52,7 @@ function sanitizeNodesForPublicView(
   });
 }
 
-export async function GET(
+export const GET = withTracedApiHandler("GET /api/workflows/:workflowId", async function GET(
   request: Request,
   context: { params: Promise<{ workflowId: string }> }
 ) {
@@ -138,7 +139,7 @@ export async function GET(
       { status: 500 }
     );
   }
-}
+});
 
 // Helper to build update data from request body
 function buildUpdateData(
@@ -247,7 +248,7 @@ async function handlePostUpdateSideEffects(
   }
 }
 
-export async function PATCH(
+export const PATCH = withTracedApiHandler("PATCH /api/workflows/:workflowId", async function PATCH(
   request: Request,
   context: { params: Promise<{ workflowId: string }> }
 ) {
@@ -399,9 +400,9 @@ export async function PATCH(
       { status: 500 }
     );
   }
-}
+});
 
-export async function DELETE(
+export const DELETE = withTracedApiHandler("DELETE /api/workflows/:workflowId", async function DELETE(
   request: Request,
   context: { params: Promise<{ workflowId: string }> }
 ) {
@@ -504,4 +505,4 @@ export async function DELETE(
       { status: 500 }
     );
   }
-}
+});

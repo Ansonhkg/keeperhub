@@ -5,9 +5,17 @@
  */
 import "server-only";
 
+import type { TraceContext } from "@keeperhub/trace-sdk/server";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { recordStepMetrics } from "@/lib/metrics/instrumentation/workflow";
 import { recordStepSuccess } from "@/lib/step-success-tracker";
+import {
+  recordWorkflowRunError,
+  recordWorkflowRunSuccess,
+  recordWorkflowStepEnd,
+  recordWorkflowStepError,
+  recordWorkflowStepStart,
+} from "@/lib/trace/workflow-trace";
 import {
   runWithWorkflowErrorContext,
   type WorkflowErrorContext,
@@ -34,6 +42,9 @@ export type StepContext = {
   orgSlug?: string;
   ownerId?: string;
   workflowId?: string;
+  traceContext?: TraceContext;
+  traceSpanId?: string;
+  traceParentSpanId?: string | null;
 };
 
 /**
@@ -70,6 +81,8 @@ export type StepInput = {
 type LogInfo = {
   logId: string;
   startTime: number;
+  traceContext?: TraceContext;
+  traceSpanId?: string;
 };
 
 /**
@@ -79,8 +92,36 @@ async function logStepStart(
   context: StepContext | undefined,
   input: unknown
 ): Promise<LogInfo> {
+  let traceSpanId: string | undefined;
+
+  if (context?.traceContext) {
+    traceSpanId =
+      (await recordWorkflowStepStart({
+        actionType: context.nodeType,
+        forEachNodeId: context.forEachNodeId,
+        input,
+        iterationIndex: context.iterationIndex,
+        label: context.nodeName,
+        nodeId: context.nodeId,
+        parentSpanId: context.traceParentSpanId ?? null,
+        spanId: context.traceSpanId,
+        traceContext: context.traceContext,
+      })) ?? undefined;
+    if (traceSpanId) {
+      context.traceContext = {
+        ...context.traceContext,
+        spanId: traceSpanId,
+      };
+    }
+  }
+
   if (!context?.executionId) {
-    return { logId: "", startTime: Date.now() };
+    return {
+      logId: "",
+      startTime: Date.now(),
+      traceContext: context?.traceContext,
+      traceSpanId,
+    };
   }
 
   try {
@@ -96,14 +137,19 @@ async function logStepStart(
       forEachNodeId: context.forEachNodeId,
     });
 
-    return result;
+    return { ...result, traceContext: context.traceContext, traceSpanId };
   } catch (error) {
     logSystemError(
       ErrorCategory.WORKFLOW_ENGINE,
       "[stepHandler] Failed to log start",
       error
     );
-    return { logId: "", startTime: Date.now() };
+    return {
+      logId: "",
+      startTime: Date.now(),
+      traceContext: context.traceContext,
+      traceSpanId,
+    };
   }
 }
 
@@ -117,6 +163,22 @@ async function logStepComplete(
   error?: string,
   executionId?: string
 ): Promise<void> {
+  if (logInfo.traceContext && logInfo.traceSpanId) {
+    if (status === "success") {
+      await recordWorkflowStepEnd({
+        output,
+        spanId: logInfo.traceSpanId,
+        traceContext: logInfo.traceContext,
+      });
+    } else {
+      await recordWorkflowStepError({
+        error: { message: error ?? "Step execution failed", name: "Error" },
+        spanId: logInfo.traceSpanId,
+        traceContext: logInfo.traceContext,
+      });
+    }
+  }
+
   if (!logInfo.logId) {
     return;
   }
@@ -159,17 +221,32 @@ export async function logWorkflowComplete(options: {
   output?: unknown;
   error?: string;
   startTime: number;
+  traceContext?: TraceContext;
 }): Promise<void> {
   try {
     const redactedOutput = redactSensitiveData(options.output);
 
-    await logWorkflowCompleteDb({
+    const result = await logWorkflowCompleteDb({
       executionId: options.executionId,
       status: options.status,
       output: redactedOutput,
       error: options.error,
       startTime: options.startTime,
     });
+
+    if (options.traceContext) {
+      if (result.status === "success") {
+        await recordWorkflowRunSuccess(options.traceContext);
+      } else {
+        await recordWorkflowRunError(
+          {
+            message: result.error ?? "Workflow execution failed",
+            name: "Error",
+          },
+          options.traceContext
+        );
+      }
+    }
   } catch (err) {
     logSystemError(
       ErrorCategory.WORKFLOW_ENGINE,

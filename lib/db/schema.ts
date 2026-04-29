@@ -333,6 +333,136 @@ export const workflowExecutionLogs = pgTable("workflow_execution_logs", {
   forEachNodeId: text("for_each_node_id"), // parent For Each node ID (null for non-loop nodes)
 });
 
+export const diagnosticRuns = pgTable(
+  "diagnostic_runs",
+  {
+    runId: text("run_id").primaryKey(),
+    traceId: text("trace_id").notNull(),
+    workflowId: text("workflow_id").references(() => workflows.id, {
+      onDelete: "set null",
+    }),
+    workflowExecutionId: text("workflow_execution_id").references(
+      () => workflowExecutions.id,
+      { onDelete: "set null" }
+    ),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    organizationId: text("organization_id").references(() => organization.id, {
+      onDelete: "cascade",
+    }),
+    capability: text("capability").notNull().default(""),
+    origin: text("origin").notNull().default(""),
+    trigger: text("trigger").notNull().default(""),
+    actor: text("actor").notNull().default(""),
+    platform: text("platform").notNull().default(""),
+    mode: text("mode").notNull().default(""),
+    provider: text("provider").notNull().default(""),
+    status: text("status")
+      .notNull()
+      .$type<"pending" | "running" | "success" | "error">(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    startedAt: timestamp("started_at").notNull(),
+    endedAt: timestamp("ended_at"),
+    durationMs: integer("duration_ms"),
+    attributes: jsonb("attributes").$type<Record<string, unknown> | null>(),
+    error: jsonb("error").$type<Record<string, unknown> | null>(),
+    eventCount: integer("event_count").notNull().default(0),
+    spanCount: integer("span_count").notNull().default(0),
+    lastEventType: text("last_event_type").notNull().default(""),
+  },
+  (table) => [
+    index("idx_diagnostic_runs_workflow").on(table.workflowId),
+    index("idx_diagnostic_runs_execution").on(table.workflowExecutionId),
+    index("idx_diagnostic_runs_user").on(table.userId),
+    index("idx_diagnostic_runs_org").on(table.organizationId),
+    index("idx_diagnostic_runs_status").on(table.status),
+    index("idx_diagnostic_runs_capability").on(table.capability),
+    index("idx_diagnostic_runs_updated").on(table.updatedAt),
+  ]
+);
+
+export const diagnosticSpans = pgTable(
+  "diagnostic_spans",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => generateId()),
+    runId: text("run_id")
+      .notNull()
+      .references(() => diagnosticRuns.runId, { onDelete: "cascade" }),
+    traceId: text("trace_id").notNull(),
+    spanId: text("span_id").notNull(),
+    parentSpanId: text("parent_span_id"),
+    label: text("label").notNull(),
+    kind: text("kind").notNull(),
+    status: text("status")
+      .notNull()
+      .$type<"pending" | "running" | "success" | "error">(),
+    step: text("step").notNull().default(""),
+    startedAt: timestamp("started_at").notNull(),
+    endedAt: timestamp("ended_at"),
+    durationMs: integer("duration_ms"),
+    attributes: jsonb("attributes").$type<Record<string, unknown> | null>(),
+    input: jsonb("input").$type<unknown>(),
+    output: jsonb("output").$type<unknown>(),
+    error: jsonb("error").$type<Record<string, unknown> | null>(),
+  },
+  (table) => [
+    uniqueIndex("uq_diagnostic_spans_run_span").on(table.runId, table.spanId),
+    index("idx_diagnostic_spans_run").on(table.runId),
+    index("idx_diagnostic_spans_parent").on(table.runId, table.parentSpanId),
+  ]
+);
+
+export const diagnosticEvents = pgTable(
+  "diagnostic_events",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => generateId()),
+    runId: text("run_id")
+      .notNull()
+      .references(() => diagnosticRuns.runId, { onDelete: "cascade" }),
+    traceId: text("trace_id").notNull(),
+    spanId: text("span_id"),
+    parentSpanId: text("parent_span_id"),
+    type: text("type").notNull(),
+    at: timestamp("at").notNull(),
+    durationMs: integer("duration_ms"),
+    payload: jsonb("payload").$type<unknown>(),
+    attributes: jsonb("attributes").$type<Record<string, unknown> | null>(),
+    error: jsonb("error").$type<Record<string, unknown> | null>(),
+  },
+  (table) => [
+    index("idx_diagnostic_events_run").on(table.runId),
+    index("idx_diagnostic_events_span").on(table.runId, table.spanId),
+    index("idx_diagnostic_events_type").on(table.type),
+  ]
+);
+
+export const diagnosticSpanLinks = pgTable(
+  "diagnostic_span_links",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => generateId()),
+    runId: text("run_id")
+      .notNull()
+      .references(() => diagnosticRuns.runId, { onDelete: "cascade" }),
+    traceId: text("trace_id").notNull(),
+    spanId: text("span_id").notNull(),
+    linkedSpanId: text("linked_span_id").notNull(),
+    type: text("type").notNull().default("link"),
+    attributes: jsonb("attributes").$type<Record<string, unknown> | null>(),
+  },
+  (table) => [
+    index("idx_diagnostic_span_links_run").on(table.runId),
+    index("idx_diagnostic_span_links_span").on(table.runId, table.spanId),
+  ]
+);
+
 export {
   type AgenticWalletCredit,
   agenticWalletCredits,
@@ -748,6 +878,14 @@ export type WorkflowExecution = typeof workflowExecutions.$inferSelect;
 export type NewWorkflowExecution = typeof workflowExecutions.$inferInsert;
 export type WorkflowExecutionLog = typeof workflowExecutionLogs.$inferSelect;
 export type NewWorkflowExecutionLog = typeof workflowExecutionLogs.$inferInsert;
+export type DiagnosticRun = typeof diagnosticRuns.$inferSelect;
+export type NewDiagnosticRun = typeof diagnosticRuns.$inferInsert;
+export type DiagnosticSpan = typeof diagnosticSpans.$inferSelect;
+export type NewDiagnosticSpan = typeof diagnosticSpans.$inferInsert;
+export type DiagnosticEvent = typeof diagnosticEvents.$inferSelect;
+export type NewDiagnosticEvent = typeof diagnosticEvents.$inferInsert;
+export type DiagnosticSpanLink = typeof diagnosticSpanLinks.$inferSelect;
+export type NewDiagnosticSpanLink = typeof diagnosticSpanLinks.$inferInsert;
 // ParaWallet types are exported from ./schema-extensions
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type NewApiKey = typeof apiKeys.$inferInsert;

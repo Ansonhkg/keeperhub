@@ -6,6 +6,7 @@ import { accounts, users, verifications } from "@/lib/db/schema";
 import { sendOAuthPasswordResetEmail, sendVerificationOTP } from "@/lib/email";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { hashPassword } from "@/lib/password";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import { generateId } from "@/lib/utils/id";
 
 const OAUTH_PROVIDERS = ["vercel", "github", "google"];
@@ -20,48 +21,56 @@ function generateOTP(): string {
  * Handles both request (send OTP) and reset (verify OTP + new password) flows
  * based on the action parameter in the request body
  */
-export async function POST(request: Request): Promise<NextResponse> {
-  try {
-    const body = (await request.json()) as {
-      action?: "request" | "reset";
-      email?: string;
-      otp?: string;
-      newPassword?: string;
-    };
+export const POST = withTracedApiHandler(
+  "POST /api/user/forgot-password",
+  async function POST(request: Request): Promise<NextResponse> {
+    try {
+      const body = (await request.json()) as {
+        action?: "request" | "reset";
+        email?: string;
+        otp?: string;
+        newPassword?: string;
+      };
 
-    const { action, email } = body;
+      const { action, email } = body;
 
-    if (!email) {
-      return NextResponse.json({ error: "Email is required" }, { status: 400 });
-    }
-
-    const normalizedEmail = email.toLowerCase().trim();
-
-    if (action === "reset") {
-      return handleReset(normalizedEmail, body.otp, body.newPassword);
-    }
-
-    // Default to request action
-    return handleRequest(normalizedEmail);
-  } catch (error) {
-    logSystemError(
-      ErrorCategory.AUTH,
-      "[Forgot Password] Failed to process request:",
-      error,
-      {
-        endpoint: "/api/user/forgot-password",
-        status_code: "500",
+      if (!email) {
+        return NextResponse.json(
+          { error: "Email is required" },
+          { status: 400 }
+        );
       }
-    );
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to process request",
-      },
-      { status: 500 }
-    );
+
+      const normalizedEmail = email.toLowerCase().trim();
+
+      if (action === "reset") {
+        return handleReset(normalizedEmail, body.otp, body.newPassword);
+      }
+
+      // Default to request action
+      return handleRequest(normalizedEmail);
+    } catch (error) {
+      logSystemError(
+        ErrorCategory.AUTH,
+        "[Forgot Password] Failed to process request:",
+        error,
+        {
+          endpoint: "/api/user/forgot-password",
+          status_code: "500",
+        }
+      );
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to process request",
+        },
+        { status: 500 }
+      );
+    }
   }
-}
+);
 
 async function handleRequest(email: string): Promise<NextResponse> {
   // Find user by email

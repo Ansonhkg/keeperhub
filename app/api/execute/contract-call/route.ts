@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { resolveAbi } from "@/lib/abi-cache";
 import { type AbiItem, findAbiFunction } from "@/lib/abi-utils";
 import { enterApiExecuteErrorContext } from "@/lib/db/org-helpers";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import { getErrorMessage } from "@/lib/utils";
 import { readContractCore } from "@/plugins/web3/steps/read-contract-core";
 import { writeContractCore } from "@/plugins/web3/steps/write-contract-core";
@@ -139,65 +140,74 @@ async function handleWriteCall(
   );
 }
 
-export async function POST(request: Request): Promise<NextResponse> {
-  const apiKeyCtx = await validateApiKey(request);
-  if (!apiKeyCtx) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const POST = withTracedApiHandler(
+  "POST /api/execute/contract-call",
+  async function POST(request: Request): Promise<NextResponse> {
+    const apiKeyCtx = await validateApiKey(request);
+    if (!apiKeyCtx) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-  // Enter ALS error context so plugin step errors carry org labels
-  await enterApiExecuteErrorContext(apiKeyCtx.organizationId);
+    // Enter ALS error context so plugin step errors carry org labels
+    await enterApiExecuteErrorContext(apiKeyCtx.organizationId);
 
-  const rateLimit = checkRateLimit(apiKeyCtx.apiKeyId);
-  if (!rateLimit.allowed) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded" },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfter) } }
+    const rateLimit = checkRateLimit(apiKeyCtx.apiKeyId);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded" },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rateLimit.retryAfter) },
+        }
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const validation = validateContractCallInput(body);
+    if (!validation.valid) {
+      return NextResponse.json(validation.error, { status: 400 });
+    }
+
+    const abiResult = await resolveAbiForRequest(body);
+    if ("error" in abiResult) {
+      return NextResponse.json(
+        { error: abiResult.error, field: "abi" },
+        { status: 400 }
+      );
+    }
+
+    const resolvedAbi = abiResult.abi;
+
+    const fnResult = findFunctionInAbi(
+      resolvedAbi,
+      body.functionName as string
+    );
+    if ("error" in fnResult) {
+      return NextResponse.json(
+        { error: fnResult.error, field: "functionName" },
+        { status: 400 }
+      );
+    }
+
+    const isReadOnly =
+      fnResult.entry.stateMutability === "view" ||
+      fnResult.entry.stateMutability === "pure";
+
+    if (isReadOnly) {
+      return handleReadCall(body, resolvedAbi, apiKeyCtx.organizationId);
+    }
+
+    return handleWriteCall(
+      body,
+      resolvedAbi,
+      apiKeyCtx.organizationId,
+      apiKeyCtx.apiKeyId
     );
   }
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const validation = validateContractCallInput(body);
-  if (!validation.valid) {
-    return NextResponse.json(validation.error, { status: 400 });
-  }
-
-  const abiResult = await resolveAbiForRequest(body);
-  if ("error" in abiResult) {
-    return NextResponse.json(
-      { error: abiResult.error, field: "abi" },
-      { status: 400 }
-    );
-  }
-
-  const resolvedAbi = abiResult.abi;
-
-  const fnResult = findFunctionInAbi(resolvedAbi, body.functionName as string);
-  if ("error" in fnResult) {
-    return NextResponse.json(
-      { error: fnResult.error, field: "functionName" },
-      { status: 400 }
-    );
-  }
-
-  const isReadOnly =
-    fnResult.entry.stateMutability === "view" ||
-    fnResult.entry.stateMutability === "pure";
-
-  if (isReadOnly) {
-    return handleReadCall(body, resolvedAbi, apiKeyCtx.organizationId);
-  }
-
-  return handleWriteCall(
-    body,
-    resolvedAbi,
-    apiKeyCtx.organizationId,
-    apiKeyCtx.apiKeyId
-  );
-}
+);

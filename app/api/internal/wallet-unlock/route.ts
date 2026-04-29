@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { walletLocks } from "@/lib/db/schema-extensions";
 import { authenticateInternalService } from "@/lib/internal-service-auth";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 /**
  * POST /api/internal/wallet-unlock
@@ -16,109 +17,112 @@ import { ErrorCategory, logSystemError } from "@/lib/logging";
  * Body: { walletAddress: string, chainId: number }
  * Returns: { released: boolean, previousHolder: string | null }
  */
-export async function POST(request: Request): Promise<NextResponse> {
-  const auth = authenticateInternalService(request);
-  if (!auth.authenticated) {
-    return NextResponse.json(
-      { error: auth.error ?? "Unauthorized" },
-      { status: 401 }
-    );
-  }
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const { walletAddress, chainId } = (body ?? {}) as {
-    walletAddress?: unknown;
-    chainId?: unknown;
-  };
-
-  if (typeof walletAddress !== "string" || walletAddress.length === 0) {
-    return NextResponse.json(
-      { error: "walletAddress is required and must be a string" },
-      { status: 400 }
-    );
-  }
-
-  if (typeof chainId !== "number" || !Number.isInteger(chainId)) {
-    return NextResponse.json(
-      { error: "chainId is required and must be an integer" },
-      { status: 400 }
-    );
-  }
-
-  const normalizedAddress = walletAddress.toLowerCase();
-
-  try {
-    const existing = await db
-      .select({
-        lockedBy: walletLocks.lockedBy,
-        expiresAt: walletLocks.expiresAt,
-      })
-      .from(walletLocks)
-      .where(
-        and(
-          eq(walletLocks.walletAddress, normalizedAddress),
-          eq(walletLocks.chainId, chainId)
-        )
-      )
-      .limit(1);
-
-    const previousHolder = existing[0]?.lockedBy ?? null;
-
-    if (previousHolder === null) {
-      return NextResponse.json({ released: false, previousHolder: null });
+export const POST = withTracedApiHandler(
+  "POST /api/internal/wallet-unlock",
+  async function POST(request: Request): Promise<NextResponse> {
+    const auth = authenticateInternalService(request);
+    if (!auth.authenticated) {
+      return NextResponse.json(
+        { error: auth.error ?? "Unauthorized" },
+        { status: 401 }
+      );
     }
 
-    // Conditional update: only clear if we observe the same holder we read.
-    // If the lock was legitimately released and re-acquired between the
-    // SELECT and this UPDATE, the WHERE will fail and we report no release
-    // — the operator can re-issue rather than us killing an unrelated holder.
-    const released = await db
-      .update(walletLocks)
-      .set({
-        lockedBy: null,
-        lockedAt: null,
-        expiresAt: sql`NOW()`,
-      })
-      .where(
-        and(
-          eq(walletLocks.walletAddress, normalizedAddress),
-          eq(walletLocks.chainId, chainId),
-          eq(walletLocks.lockedBy, previousHolder)
-        )
-      )
-      .returning({ walletAddress: walletLocks.walletAddress });
-
-    if (released.length === 0) {
-      return NextResponse.json({ released: false, previousHolder: null });
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    return NextResponse.json({ released: true, previousHolder });
-  } catch (error) {
-    logSystemError(
-      ErrorCategory.DATABASE,
-      "Failed to release nonce lock",
-      error,
-      {
-        endpoint: "/api/internal/wallet-unlock",
-        operation: "post",
-        walletAddress: normalizedAddress,
-        chainId: String(chainId),
+    const { walletAddress, chainId } = (body ?? {}) as {
+      walletAddress?: unknown;
+      chainId?: unknown;
+    };
+
+    if (typeof walletAddress !== "string" || walletAddress.length === 0) {
+      return NextResponse.json(
+        { error: "walletAddress is required and must be a string" },
+        { status: 400 }
+      );
+    }
+
+    if (typeof chainId !== "number" || !Number.isInteger(chainId)) {
+      return NextResponse.json(
+        { error: "chainId is required and must be an integer" },
+        { status: 400 }
+      );
+    }
+
+    const normalizedAddress = walletAddress.toLowerCase();
+
+    try {
+      const existing = await db
+        .select({
+          lockedBy: walletLocks.lockedBy,
+          expiresAt: walletLocks.expiresAt,
+        })
+        .from(walletLocks)
+        .where(
+          and(
+            eq(walletLocks.walletAddress, normalizedAddress),
+            eq(walletLocks.chainId, chainId)
+          )
+        )
+        .limit(1);
+
+      const previousHolder = existing[0]?.lockedBy ?? null;
+
+      if (previousHolder === null) {
+        return NextResponse.json({ released: false, previousHolder: null });
       }
-    );
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to release nonce lock",
-      },
-      { status: 500 }
-    );
+
+      // Conditional update: only clear if we observe the same holder we read.
+      // If the lock was legitimately released and re-acquired between the
+      // SELECT and this UPDATE, the WHERE will fail and we report no release
+      // — the operator can re-issue rather than us killing an unrelated holder.
+      const released = await db
+        .update(walletLocks)
+        .set({
+          lockedBy: null,
+          lockedAt: null,
+          expiresAt: sql`NOW()`,
+        })
+        .where(
+          and(
+            eq(walletLocks.walletAddress, normalizedAddress),
+            eq(walletLocks.chainId, chainId),
+            eq(walletLocks.lockedBy, previousHolder)
+          )
+        )
+        .returning({ walletAddress: walletLocks.walletAddress });
+
+      if (released.length === 0) {
+        return NextResponse.json({ released: false, previousHolder: null });
+      }
+
+      return NextResponse.json({ released: true, previousHolder });
+    } catch (error) {
+      logSystemError(
+        ErrorCategory.DATABASE,
+        "Failed to release nonce lock",
+        error,
+        {
+          endpoint: "/api/internal/wallet-unlock",
+          operation: "post",
+          walletAddress: normalizedAddress,
+          chainId: String(chainId),
+        }
+      );
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to release nonce lock",
+        },
+        { status: 500 }
+      );
+    }
   }
-}
+);

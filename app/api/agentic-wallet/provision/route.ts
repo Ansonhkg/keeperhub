@@ -25,14 +25,12 @@
  *   hmacSecret in logSystemError metadata, and NEVER forward error.message
  *   to the client.
  */
-import {
-  TurnkeyActivityError,
-  TurnkeyRequestError,
-} from "@turnkey/sdk-server";
+import { TurnkeyActivityError, TurnkeyRequestError } from "@turnkey/sdk-server";
 import { provisionAgenticWallet } from "@/lib/agentic-wallet/provision";
 import { incrementAndCheck } from "@/lib/agentic-wallet/rate-limit";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { resolveTrustedClientIp } from "@/lib/security/trusted-proxies";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 export const dynamic = "force-dynamic";
 
@@ -45,58 +43,61 @@ function getPeerIp(request: Request): string | null {
   return ip ?? request.headers.get("x-real-ip");
 }
 
-export async function POST(request: Request): Promise<Response> {
-  const peerIp = getPeerIp(request);
-  const trustedIp = resolveTrustedClientIp(request, peerIp);
-  const rate = await incrementAndCheck(
-    `provision:${trustedIp}`,
-    RATE_LIMIT_MAX
-  );
-  if (!rate.allowed) {
-    return Response.json(
-      { error: "Rate limit exceeded", retryAfter: rate.retryAfter },
-      {
-        status: 429,
-        headers: { "Retry-After": String(rate.retryAfter) },
-      }
+export const POST = withTracedApiHandler(
+  "POST /api/agentic-wallet/provision",
+  async function POST(request: Request): Promise<Response> {
+    const peerIp = getPeerIp(request);
+    const trustedIp = resolveTrustedClientIp(request, peerIp);
+    const rate = await incrementAndCheck(
+      `provision:${trustedIp}`,
+      RATE_LIMIT_MAX
     );
-  }
+    if (!rate.allowed) {
+      return Response.json(
+        { error: "Rate limit exceeded", retryAfter: rate.retryAfter },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rate.retryAfter) },
+        }
+      );
+    }
 
-  try {
-    const result = await provisionAgenticWallet();
-    return Response.json(result, { status: 200 });
-  } catch (error) {
-    // REVIEW HI-03: use typed error detection (instanceof) instead of regex
-    // on error.message. Turnkey SDK throws TurnkeyRequestError (API-layer HTTP
-    // errors) and TurnkeyActivityError (activity-level failures); both should
-    // surface as TURNKEY_UPSTREAM so the npm client's retry logic kicks in.
-    // A conservative name-based fallback also catches custom Turnkey-tagged
-    // errors thrown from provision.ts.
-    const isTurnkey =
-      error instanceof TurnkeyRequestError ||
-      error instanceof TurnkeyActivityError ||
-      (error instanceof Error &&
-        (error.name === "TurnkeyRequestError" ||
-          error.name === "TurnkeyActivityError" ||
-          error.name === "TurnkeyUpstreamError"));
-    logSystemError(
-      ErrorCategory.EXTERNAL_SERVICE,
-      "[Agentic] /provision failed",
-      error,
-      {
-        // T-33-02: do NOT include the request body or hmacSecret in meta.
-        endpoint: "/api/agentic-wallet/provision",
-        operation: "provision",
-      }
-    );
-    // REVIEW HI-03: never forward raw error.message to unauthenticated
-    // callers. Fixed strings per error class; internal detail lives in logs.
-    return Response.json(
-      {
-        error: isTurnkey ? "Upstream signer error" : "Provision failed",
-        code: isTurnkey ? "TURNKEY_UPSTREAM" : "INTERNAL",
-      },
-      { status: isTurnkey ? 502 : 500 }
-    );
+    try {
+      const result = await provisionAgenticWallet();
+      return Response.json(result, { status: 200 });
+    } catch (error) {
+      // REVIEW HI-03: use typed error detection (instanceof) instead of regex
+      // on error.message. Turnkey SDK throws TurnkeyRequestError (API-layer HTTP
+      // errors) and TurnkeyActivityError (activity-level failures); both should
+      // surface as TURNKEY_UPSTREAM so the npm client's retry logic kicks in.
+      // A conservative name-based fallback also catches custom Turnkey-tagged
+      // errors thrown from provision.ts.
+      const isTurnkey =
+        error instanceof TurnkeyRequestError ||
+        error instanceof TurnkeyActivityError ||
+        (error instanceof Error &&
+          (error.name === "TurnkeyRequestError" ||
+            error.name === "TurnkeyActivityError" ||
+            error.name === "TurnkeyUpstreamError"));
+      logSystemError(
+        ErrorCategory.EXTERNAL_SERVICE,
+        "[Agentic] /provision failed",
+        error,
+        {
+          // T-33-02: do NOT include the request body or hmacSecret in meta.
+          endpoint: "/api/agentic-wallet/provision",
+          operation: "provision",
+        }
+      );
+      // REVIEW HI-03: never forward raw error.message to unauthenticated
+      // callers. Fixed strings per error class; internal detail lives in logs.
+      return Response.json(
+        {
+          error: isTurnkey ? "Upstream signer error" : "Provision failed",
+          code: isTurnkey ? "TURNKEY_UPSTREAM" : "INTERNAL",
+        },
+        { status: isTurnkey ? 502 : 500 }
+      );
+    }
   }
-}
+);

@@ -4,8 +4,9 @@ import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { getDualAuthContext } from "@/lib/middleware/auth-helpers";
 import { db } from "@/lib/db";
 import { workflowExecutions, workflows } from "@/lib/db/schema";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
-export async function GET(
+export const GET = withTracedApiHandler("GET /api/workflows/:workflowId/executions", async function GET(
   request: Request,
   context: { params: Promise<{ workflowId: string }> }
 ) {
@@ -67,9 +68,9 @@ export async function GET(
       { status: 500 }
     );
   }
-}
+});
 
-export async function DELETE(
+export const DELETE = withTracedApiHandler("DELETE /api/workflows/:workflowId/executions", async function DELETE(
   request: Request,
   context: { params: Promise<{ workflowId: string }> }
 ) {
@@ -157,4 +158,4 @@ export async function DELETE(
       { status: 500 }
     );
   }
-}
+});

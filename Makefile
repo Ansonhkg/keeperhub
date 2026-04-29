@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install dev build type-check lint fix deploy-to-local-kubernetes setup-local-kubernetes check-local-kubernetes status logs restart teardown db-create db-migrate db-studio build-images deploy-executor executor-status executor-logs runner-logs teardown-executor test test-unit test-integration test-e2e test-e2e-hybrid test-playwright test-playwright-report hybrid-setup hybrid-up hybrid-deploy hybrid-deploy-only hybrid-status hybrid-down hybrid-reset hybrid-logs dev-setup dev-up dev-down dev-logs dev-migrate
+.PHONY: help install dev run seed build type-check lint fix deploy-to-local-kubernetes setup-local-kubernetes check-local-kubernetes status logs restart teardown db-create db-migrate db-studio build-images deploy-executor executor-status executor-logs runner-logs teardown-executor test test-unit test-integration test-e2e test-e2e-hybrid test-playwright test-playwright-report hybrid-setup hybrid-up hybrid-deploy hybrid-deploy-only hybrid-status hybrid-down hybrid-reset hybrid-logs dev-setup dev-up dev-down dev-logs dev-migrate
 
 # Development
 install:
@@ -7,6 +7,14 @@ install:
 
 dev:
 	pnpm dev
+
+run:
+	pnpm install
+	pnpm db:push
+	pnpm dev
+
+seed:
+	pnpm tsx scripts/seed/seed-user.ts
 
 build:
 	pnpm build

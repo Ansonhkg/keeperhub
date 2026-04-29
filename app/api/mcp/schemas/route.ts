@@ -6,6 +6,7 @@ import { BUILTIN_NODE_ID, BUILTIN_NODE_LABEL } from "@/lib/builtin-variables";
 import { db } from "@/lib/db";
 import { chains, explorerConfigs } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import {
   type ActionConfigFieldBase,
   computeActionId,
@@ -415,207 +416,213 @@ type ChainInfo = {
  * - category: Filter to a specific category (e.g., "web3", "system", "discord")
  * - includeChains: "true" to include supported chains (default: true)
  */
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const categoryFilter = searchParams.get("category")?.toLowerCase();
-  const includeChains = searchParams.get("includeChains") !== "false";
+export const GET = withTracedApiHandler(
+  "GET /api/mcp/schemas",
+  async function GET(request: Request) {
+    const { searchParams } = new URL(request.url);
+    const categoryFilter = searchParams.get("category")?.toLowerCase();
+    const includeChains = searchParams.get("includeChains") !== "false";
 
-  // Get all plugins from registry
-  const allPlugins = getAllIntegrations();
+    // Get all plugins from registry
+    const allPlugins = getAllIntegrations();
 
-  // Transform plugin actions
-  const pluginActions: Record<
-    string,
-    ReturnType<typeof transformPluginAction>
-  > = {};
-  for (const plugin of allPlugins) {
-    if (categoryFilter && plugin.type !== categoryFilter) {
-      continue;
+    // Transform plugin actions
+    const pluginActions: Record<
+      string,
+      ReturnType<typeof transformPluginAction>
+    > = {};
+    for (const plugin of allPlugins) {
+      if (categoryFilter && plugin.type !== categoryFilter) {
+        continue;
+      }
+      for (const action of plugin.actions) {
+        const transformed = transformPluginAction(plugin, action);
+        pluginActions[transformed.actionType] = transformed;
+      }
     }
-    for (const action of plugin.actions) {
-      const transformed = transformPluginAction(plugin, action);
-      pluginActions[transformed.actionType] = transformed;
+
+    // Filter system actions if category specified
+    const systemActions =
+      !categoryFilter || categoryFilter === "system" ? SYSTEM_ACTIONS : {};
+
+    // Filter triggers if category specified
+    const triggers =
+      !categoryFilter || categoryFilter === "triggers" ? TRIGGERS : {};
+
+    // Fetch chains from database
+    let chainList: ChainInfo[] = [];
+    if (includeChains) {
+      try {
+        const results = await db
+          .select({
+            chain: chains,
+            explorer: explorerConfigs,
+          })
+          .from(chains)
+          .leftJoin(
+            explorerConfigs,
+            eq(chains.chainId, explorerConfigs.chainId)
+          )
+          .where(eq(chains.isEnabled, true));
+
+        chainList = results.map(({ chain, explorer }) => ({
+          chainId: chain.chainId,
+          name: chain.name,
+          symbol: chain.symbol,
+          chainType: chain.chainType,
+          isTestnet: chain.isTestnet ?? false,
+          explorerUrl: explorer?.explorerUrl ?? null,
+        }));
+      } catch (error) {
+        logSystemError(
+          ErrorCategory.DATABASE,
+          "[MCP Schemas] Failed to fetch chains",
+          error,
+          { endpoint: "/api/mcp/schemas", operation: "get" }
+        );
+        // Continue without chains rather than failing the whole request
+      }
     }
-  }
 
-  // Filter system actions if category specified
-  const systemActions =
-    !categoryFilter || categoryFilter === "system" ? SYSTEM_ACTIONS : {};
+    // Derive platform capabilities from plugins
+    const platformCapabilities = derivePlatformCapabilities(allPlugins);
 
-  // Filter triggers if category specified
-  const triggers =
-    !categoryFilter || categoryFilter === "triggers" ? TRIGGERS : {};
+    const response = {
+      version: "1.0.0",
+      generatedAt: new Date().toISOString(),
 
-  // Fetch chains from database
-  let chainList: ChainInfo[] = [];
-  if (includeChains) {
-    try {
-      const results = await db
-        .select({
-          chain: chains,
-          explorer: explorerConfigs,
-        })
-        .from(chains)
-        .leftJoin(explorerConfigs, eq(chains.chainId, explorerConfigs.chainId))
-        .where(eq(chains.isEnabled, true));
+      // All available actions (plugins + system)
+      actions: {
+        ...pluginActions,
+        ...systemActions,
+      },
 
-      chainList = results.map(({ chain, explorer }) => ({
-        chainId: chain.chainId,
-        name: chain.name,
-        symbol: chain.symbol,
-        chainType: chain.chainType,
-        isTestnet: chain.isTestnet ?? false,
-        explorerUrl: explorer?.explorerUrl ?? null,
-      }));
-    } catch (error) {
-      logSystemError(
-        ErrorCategory.DATABASE,
-        "[MCP Schemas] Failed to fetch chains",
-        error,
-        { endpoint: "/api/mcp/schemas", operation: "get" }
-      );
-      // Continue without chains rather than failing the whole request
-    }
-  }
+      // All available triggers
+      triggers,
 
-  // Derive platform capabilities from plugins
-  const platformCapabilities = derivePlatformCapabilities(allPlugins);
+      // Supported blockchain networks (from database)
+      chains: chainList,
 
-  const response = {
-    version: "1.0.0",
-    generatedAt: new Date().toISOString(),
+      // Platform capabilities (derived from plugins)
+      platform: platformCapabilities,
 
-    // All available actions (plugins + system)
-    actions: {
-      ...pluginActions,
-      ...systemActions,
-    },
+      // Template syntax documentation
+      templateSyntax: TEMPLATE_SYNTAX,
 
-    // All available triggers
-    triggers,
-
-    // Supported blockchain networks (from database)
-    chains: chainList,
-
-    // Platform capabilities (derived from plugins)
-    platform: platformCapabilities,
-
-    // Template syntax documentation
-    templateSyntax: TEMPLATE_SYNTAX,
-
-    // Built-in system variables (evaluated at runtime)
-    builtinVariables: {
-      description: `Built-in variables evaluated at runtime. Reference using {{@${BUILTIN_NODE_ID}:${BUILTIN_NODE_LABEL}.fieldName}} syntax.`,
-      nodeId: BUILTIN_NODE_ID,
-      nodeLabel: BUILTIN_NODE_LABEL,
-      variables: {
-        unixTimestamp: {
-          type: "number",
-          description:
-            "Current Unix timestamp in seconds (Solidity-compatible, matches block.timestamp)",
-          example: `{{@${BUILTIN_NODE_ID}:${BUILTIN_NODE_LABEL}.unixTimestamp}}`,
-        },
-        unixTimestampMs: {
-          type: "number",
-          description:
-            "Current Unix timestamp in milliseconds (JavaScript Date.now())",
-          example: `{{@${BUILTIN_NODE_ID}:${BUILTIN_NODE_LABEL}.unixTimestampMs}}`,
-        },
-        isoTimestamp: {
-          type: "string",
-          description: "Current time as ISO 8601 UTC string",
-          example: `{{@${BUILTIN_NODE_ID}:${BUILTIN_NODE_LABEL}.isoTimestamp}}`,
+      // Built-in system variables (evaluated at runtime)
+      builtinVariables: {
+        description: `Built-in variables evaluated at runtime. Reference using {{@${BUILTIN_NODE_ID}:${BUILTIN_NODE_LABEL}.fieldName}} syntax.`,
+        nodeId: BUILTIN_NODE_ID,
+        nodeLabel: BUILTIN_NODE_LABEL,
+        variables: {
+          unixTimestamp: {
+            type: "number",
+            description:
+              "Current Unix timestamp in seconds (Solidity-compatible, matches block.timestamp)",
+            example: `{{@${BUILTIN_NODE_ID}:${BUILTIN_NODE_LABEL}.unixTimestamp}}`,
+          },
+          unixTimestampMs: {
+            type: "number",
+            description:
+              "Current Unix timestamp in milliseconds (JavaScript Date.now())",
+            example: `{{@${BUILTIN_NODE_ID}:${BUILTIN_NODE_LABEL}.unixTimestampMs}}`,
+          },
+          isoTimestamp: {
+            type: "string",
+            description: "Current time as ISO 8601 UTC string",
+            example: `{{@${BUILTIN_NODE_ID}:${BUILTIN_NODE_LABEL}.isoTimestamp}}`,
+          },
         },
       },
-    },
 
-    // Workflow structure hints for AI
-    workflowStructure: {
-      nodeStructure: {
-        id: "string - Unique node identifier",
-        type: '"trigger" | "action"',
-        position:
-          "{ x: number, y: number } - Optional, auto-laid out if omitted",
-        data: {
-          label: "string - Human-readable node name",
-          description: "string - Optional description",
+      // Workflow structure hints for AI
+      workflowStructure: {
+        nodeStructure: {
+          id: "string - Unique node identifier",
           type: '"trigger" | "action"',
-          config: "object - Action/trigger specific configuration",
-          status: '"idle" | "running" | "success" | "error"',
+          position:
+            "{ x: number, y: number } - Optional, auto-laid out if omitted",
+          data: {
+            label: "string - Human-readable node name",
+            description: "string - Optional description",
+            type: '"trigger" | "action"',
+            config: "object - Action/trigger specific configuration",
+            status: '"idle" | "running" | "success" | "error"',
+          },
+        },
+        edgeStructure: {
+          id: "string - Unique edge identifier",
+          source: "string - Source node ID",
+          target: "string - Target node ID",
+          sourceHandle:
+            "string (optional) - For Condition node edges: 'true' or 'false'. For For Each node edges: 'loop' or 'done'. Omit for all other node types.",
+          note: "Do NOT use targetHandle. sourceHandle is only needed for Condition and For Each node edges.",
         },
       },
-      edgeStructure: {
-        id: "string - Unique edge identifier",
-        source: "string - Source node ID",
-        target: "string - Target node ID",
-        sourceHandle:
-          "string (optional) - For Condition node edges: 'true' or 'false'. For For Each node edges: 'loop' or 'done'. Omit for all other node types.",
-        note: "Do NOT use targetHandle. sourceHandle is only needed for Condition and For Each node edges.",
-      },
-    },
 
-    // Projects - workflow grouping
-    projects: {
-      description:
-        "Workflows can be organized into projects. Use projectId when creating or updating workflows to assign them to a project.",
-      endpoints: {
-        list: "GET /api/projects - List all projects for the org (includes workflowCount)",
-        create:
-          "POST /api/projects - Create project with { name, description?, color? }",
-        update:
-          "PATCH /api/projects/:id - Update project name/description/color",
-        delete:
-          "DELETE /api/projects/:id - Delete project (workflows become uncategorized)",
+      // Projects - workflow grouping
+      projects: {
+        description:
+          "Workflows can be organized into projects. Use projectId when creating or updating workflows to assign them to a project.",
+        endpoints: {
+          list: "GET /api/projects - List all projects for the org (includes workflowCount)",
+          create:
+            "POST /api/projects - Create project with { name, description?, color? }",
+          update:
+            "PATCH /api/projects/:id - Update project name/description/color",
+          delete:
+            "DELETE /api/projects/:id - Delete project (workflows become uncategorized)",
+        },
+        workflowFields: {
+          projectId:
+            "string | null - Optional project ID to assign the workflow to. Pass null to unassign.",
+        },
       },
-      workflowFields: {
-        projectId:
-          "string | null - Optional project ID to assign the workflow to. Pass null to unassign.",
-      },
-    },
 
-    // Tags - workflow labeling
-    tags: {
-      description:
-        "Workflows can be labeled with a single tag per workflow. Tags are organization-scoped and have a name and color. Use tagId when creating or updating workflows to assign a tag.",
-      endpoints: {
-        list: "GET /api/tags - List all tags for the org (includes workflowCount)",
-        create:
-          "POST /api/tags - Create tag with { name, color } (color is required, e.g. '#4A90D9')",
-        update: "PATCH /api/tags/:id - Update tag name/color",
-        delete:
-          "DELETE /api/tags/:id - Delete tag (workflows lose their tag assignment)",
+      // Tags - workflow labeling
+      tags: {
+        description:
+          "Workflows can be labeled with a single tag per workflow. Tags are organization-scoped and have a name and color. Use tagId when creating or updating workflows to assign a tag.",
+        endpoints: {
+          list: "GET /api/tags - List all tags for the org (includes workflowCount)",
+          create:
+            "POST /api/tags - Create tag with { name, color } (color is required, e.g. '#4A90D9')",
+          update: "PATCH /api/tags/:id - Update tag name/color",
+          delete:
+            "DELETE /api/tags/:id - Delete tag (workflows lose their tag assignment)",
+        },
+        workflowFields: {
+          tagId:
+            "string | null - Optional tag ID to assign to the workflow. Pass null to unassign. Each workflow can have at most one tag.",
+        },
       },
-      workflowFields: {
-        tagId:
-          "string | null - Optional tag ID to assign to the workflow. Pass null to unassign. Each workflow can have at most one tag.",
+
+      // Tips for AI workflow generation
+      tips: [
+        "actionType must match exactly (e.g., 'web3/check-balance', not 'Get Wallet Balance')",
+        "Use {{@nodeId:Label.field}} syntax to reference outputs from previous nodes",
+        "network should be chain ID as string (e.g., '1' for mainnet, '11155111' for sepolia)",
+        "Edges need id, source, and target. For Condition nodes, also set sourceHandle to 'true' or 'false' to control which branch executes.",
+        "For verified contracts, ABI is auto-fetched. For unverified contracts, provide ABI manually.",
+        "Condition nodes have dual output handles ('true' and 'false'). Set sourceHandle on edges to route execution. For if/else, connect different nodes to each handle of a single Condition node.",
+        "integrationId is required for actions that need credentials (discord, sendgrid, database)",
+        "web3 read actions (check-balance, read-contract) don't require wallet integration",
+        "web3 write actions (transfer-funds, write-contract) require wallet integration",
+        "web3/query-transactions queries historical transactions by function call using block explorer APIs. Use it when the contract does not emit events for the operations you need to monitor. Provide functionArgs as a JSON array where empty strings are wildcards.",
+        'tokenConfig must be a JSON string with format: {"mode":"custom","customToken":{"address":"0x...","symbol":"USDC"}} -- do NOT use a flat {address, symbol, decimals} object',
+        "Use projectId to organize related workflows into a project (e.g., all Sky ESM workflows in one project)",
+        "Use tagId to label a workflow with a single tag (e.g., 'production', 'monitoring'). Each workflow supports one tag. Fetch available tags from GET /api/tags first.",
+        `Use {{@${BUILTIN_NODE_ID}:${BUILTIN_NODE_LABEL}.unixTimestamp}} syntax for current time comparisons in conditions (e.g., checking if a contract timestamp has passed)`,
+        "All trigger types expose a 'triggeredAt' output field (ISO timestamp). Reference it with {{@triggerId:TriggerLabel.data.triggeredAt}} to include when the workflow fired.",
+        "Database Query: use inline {{@nodeId:Label.field}} template refs directly in the SQL string. Do NOT use parameterized $1/$2 placeholders with a separate dbParams array. The UI does not support that format.",
+        "Condition conditionConfig: every group and rule MUST have a unique 'id' field (use nanoid or UUID). Operators must be exact symbols: '===' not 'equals', '<' not 'less_than', '>' not 'greater_than'. Rule fields are 'leftOperand' and 'rightOperand', NOT 'field' and 'value'.",
+      ],
+    };
+
+    return NextResponse.json(response, {
+      headers: {
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=600",
       },
-    },
-
-    // Tips for AI workflow generation
-    tips: [
-      "actionType must match exactly (e.g., 'web3/check-balance', not 'Get Wallet Balance')",
-      "Use {{@nodeId:Label.field}} syntax to reference outputs from previous nodes",
-      "network should be chain ID as string (e.g., '1' for mainnet, '11155111' for sepolia)",
-      "Edges need id, source, and target. For Condition nodes, also set sourceHandle to 'true' or 'false' to control which branch executes.",
-      "For verified contracts, ABI is auto-fetched. For unverified contracts, provide ABI manually.",
-      "Condition nodes have dual output handles ('true' and 'false'). Set sourceHandle on edges to route execution. For if/else, connect different nodes to each handle of a single Condition node.",
-      "integrationId is required for actions that need credentials (discord, sendgrid, database)",
-      "web3 read actions (check-balance, read-contract) don't require wallet integration",
-      "web3 write actions (transfer-funds, write-contract) require wallet integration",
-      "web3/query-transactions queries historical transactions by function call using block explorer APIs. Use it when the contract does not emit events for the operations you need to monitor. Provide functionArgs as a JSON array where empty strings are wildcards.",
-      'tokenConfig must be a JSON string with format: {"mode":"custom","customToken":{"address":"0x...","symbol":"USDC"}} -- do NOT use a flat {address, symbol, decimals} object',
-      "Use projectId to organize related workflows into a project (e.g., all Sky ESM workflows in one project)",
-      "Use tagId to label a workflow with a single tag (e.g., 'production', 'monitoring'). Each workflow supports one tag. Fetch available tags from GET /api/tags first.",
-      `Use {{@${BUILTIN_NODE_ID}:${BUILTIN_NODE_LABEL}.unixTimestamp}} for current time comparisons in conditions (e.g., checking if a contract timestamp has passed)`,
-      "All trigger types expose a 'triggeredAt' output field (ISO timestamp). Reference it with {{@triggerId:TriggerLabel.data.triggeredAt}} to include when the workflow fired.",
-      "Database Query: use inline {{@nodeId:Label.field}} template refs directly in the SQL string. Do NOT use parameterized $1/$2 placeholders with a separate dbParams array. The UI does not support that format.",
-      "Condition conditionConfig: every group and rule MUST have a unique 'id' field (use nanoid or UUID). Operators must be exact symbols: '===' not 'equals', '<' not 'less_than', '>' not 'greater_than'. Rule fields are 'leftOperand' and 'rightOperand', NOT 'field' and 'value'.",
-    ],
-  };
-
-  return NextResponse.json(response, {
-    headers: {
-      "Cache-Control": "public, max-age=300, stale-while-revalidate=600",
-    },
-  });
-}
+    });
+  }
+);

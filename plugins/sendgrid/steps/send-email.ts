@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { workflowExecutions, workflows } from "@/lib/db/schema";
 import { withPluginMetrics } from "@/lib/metrics/instrumentation/plugin";
 import { type StepInput, withStepLogging } from "@/lib/steps/step-handler";
+import { withServerTraceSpan } from "@/lib/trace/server-span";
 import type { SendGridCredentials } from "../credentials";
 
 const SENDGRID_API_URL = "https://api.sendgrid.com";
@@ -40,7 +41,6 @@ export type SendEmailInput = StepInput &
 /**
  * Core logic - portable between app and export
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Email sending requires validation of many fields
 async function stepHandler(
   input: SendEmailCoreInput,
   credentials: SendGridCredentials,
@@ -99,14 +99,28 @@ async function stepHandler(
       ...(input.emailReplyTo && { reply_to: { email: input.emailReplyTo } }),
     };
 
-    const response = await fetch(`${SENDGRID_API_URL}/v3/mail/send`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+    const response = await withServerTraceSpan(
+      {
+        attributes: {
+          hasCc: Boolean(input.emailCc),
+          hasReplyTo: Boolean(input.emailReplyTo),
+          provider: "sendgrid",
+          recipientCount: personalizations[0].to.length,
+        },
+        kind: "external",
+        label: "SendGrid send email",
+        step: "email.sendgrid.send",
       },
-      body: JSON.stringify(emailData),
-    });
+      () =>
+        fetch(`${SENDGRID_API_URL}/v3/mail/send`, {
+          body: JSON.stringify(emailData),
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+        })
+    );
 
     if (!response.ok) {
       const errorData = (await response.json()) as SendGridErrorResponse;

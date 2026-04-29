@@ -155,7 +155,6 @@ const MultiSelectionPanel = ({
   );
 };
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex UI logic with multiple conditions
 export const PanelInner = () => {
   const [selectedNodeId] = useAtom(selectedNodeAtom);
   const [selectedEdgeId] = useAtom(selectedEdgeAtom);
@@ -793,7 +792,7 @@ export const PanelInner = () => {
     return (
       <>
         <Tabs
-          className="size-full"
+          className="size-full min-h-0 gap-0"
           defaultValue="properties"
           onValueChange={setActiveTab}
           value={activeTab}
@@ -821,7 +820,7 @@ export const PanelInner = () => {
             )}
           </TabsList>
           <TabsContent
-            className="flex flex-col overflow-hidden"
+            className="min-h-0 flex flex-col overflow-hidden"
             value="properties"
           >
             <div className="flex-1 space-y-4 overflow-y-auto p-4">
@@ -917,7 +916,10 @@ export const PanelInner = () => {
             </div>
           </TabsContent>
           {isOwner && (
-            <TabsContent className="flex flex-col overflow-hidden" value="runs">
+            <TabsContent
+              className="min-h-0 flex flex-col overflow-hidden"
+              value="runs"
+            >
               {/* Actions in content header */}
               <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
                 <Button
@@ -943,7 +945,7 @@ export const PanelInner = () => {
                   Clear All
                 </Button>
               </div>
-              <div className="flex-1 space-y-4 overflow-y-auto p-4">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
                 <WorkflowRuns
                   isActive={activeTab === "runs"}
                   onRefreshRef={refreshRunsRef}
@@ -952,7 +954,7 @@ export const PanelInner = () => {
             </TabsContent>
           )}
           <TabsContent
-            className="flex flex-col overflow-hidden data-[state=inactive]:hidden"
+            className="min-h-0 flex flex-col overflow-hidden data-[state=inactive]:hidden"
             forceMount
             value="code"
           >
@@ -1025,7 +1027,7 @@ export const PanelInner = () => {
   return (
     <>
       <Tabs
-        className="size-full"
+        className="size-full min-h-0 gap-0"
         data-testid="properties-panel"
         defaultValue="properties"
         onValueChange={setActiveTab}
@@ -1060,7 +1062,7 @@ export const PanelInner = () => {
           )}
         </TabsList>
         <TabsContent
-          className="flex flex-col overflow-hidden"
+          className="min-h-0 flex flex-col overflow-hidden"
           value="properties"
         >
           {/* Action selection - full height flex layout */}
@@ -1092,7 +1094,7 @@ export const PanelInner = () => {
             // changes, resetting local useState in leaf field components so
             // the previous node's inputs don't leak into the new node's panel.
             <div
-              className="flex-1 space-y-4 overflow-y-auto p-4"
+              className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
               key={selectedNode.id}
             >
               {selectedNode.data.type === "trigger" && (
@@ -1206,7 +1208,7 @@ export const PanelInner = () => {
           )}
         </TabsContent>
         <TabsContent
-          className="flex flex-col overflow-hidden data-[state=inactive]:hidden"
+          className="min-h-0 flex flex-col overflow-hidden data-[state=inactive]:hidden"
           forceMount
           value="code"
         >
@@ -1278,7 +1280,10 @@ export const PanelInner = () => {
           })()}
         </TabsContent>
         {isOwner && (
-          <TabsContent className="flex flex-col overflow-hidden" value="runs">
+          <TabsContent
+            className="min-h-0 flex flex-col overflow-hidden"
+            value="runs"
+          >
             {/* Actions in content header */}
             <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
               <Button
@@ -1303,7 +1308,7 @@ export const PanelInner = () => {
                 Clear All
               </Button>
             </div>
-            <div className="flex-1 space-y-4 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
               <WorkflowRuns
                 isActive={activeTab === "runs"}
                 onRefreshRef={refreshRunsRef}

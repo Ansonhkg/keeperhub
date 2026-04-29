@@ -113,10 +113,7 @@ describe.skipIf(!RPC_URL)("Aave V4 Lido Spoke on-chain integration", () => {
     const result = await provider.call({ to, data });
     const abi = JSON.parse(contract.abi as string);
     const iface = new ethers.Interface(abi);
-    const decoded = iface.decodeFunctionResult(
-      "getUserSuppliedAssets",
-      result
-    );
+    const decoded = iface.decodeFunctionResult("getUserSuppliedAssets", result);
     expect(decoded).toBeDefined();
     expect(typeof decoded[0]).toBe("bigint");
   }, 15_000);

@@ -356,7 +356,6 @@ export function WalletOverlay({
   // Re-fetch wallet when session changes (e.g., user signs in)
   const sessionUserId = session?.user?.id;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionUserId is intentionally included to trigger re-fetch on sign-in
   useEffect(() => {
     loadWallet();
   }, [loadWallet, sessionUserId]);

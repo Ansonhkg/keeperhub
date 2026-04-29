@@ -76,7 +76,6 @@ export type TransferTokenResult =
  * Parse token config from input and return a single token address.
  * Supports both new (single token) and legacy (array) formats.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Handles multiple token config formats for backwards compatibility
 export async function parseTokenAddress(
   input: Pick<TransferTokenCoreInput, "tokenConfig" | "tokenAddress">,
   chainId: number
@@ -184,7 +183,6 @@ export async function parseTokenAddress(
  * Shared between the web3 transfer-token step and the direct execution API.
  * When _context.organizationId is provided, skips workflowExecutions lookup.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Token transfer handler with comprehensive validation and error handling
 export async function transferTokenCore(
   input: TransferTokenCoreInput
 ): Promise<TransferTokenResult> {

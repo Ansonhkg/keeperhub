@@ -17,7 +17,6 @@ import {
  * Refactored from keeperhub-executor/workflow-runner.ts main() to be callable
  * from the executor without managing its own process lifecycle.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: orchestrates multiple phases of workflow execution
 export async function executeInProcess(params: {
   workflowId: string;
   executionId: string;

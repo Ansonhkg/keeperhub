@@ -451,7 +451,6 @@ type ManageOrgsModalProps = {
   onOpenChange?: (open: boolean) => void;
 };
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex modal with multiple states - refactoring would split related logic
 export function ManageOrgsModal({
   triggerText,
   defaultShowCreateForm = false,

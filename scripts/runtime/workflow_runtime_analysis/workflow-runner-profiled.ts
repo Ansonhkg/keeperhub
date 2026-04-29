@@ -201,7 +201,6 @@ class WorkflowProfiler {
     return this.analyzeSampling();
   }
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Profile analysis requires categorization logic
   private analyzePrecise(): ProfileSummary {
     if (!this.preciseCoverage) {
       throw new Error("No precise coverage data available");
@@ -321,7 +320,6 @@ class WorkflowProfiler {
     };
   }
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Profile analysis requires categorization logic
   private analyzeSampling(): ProfileSummary {
     if (!this.profile) {
       throw new Error("No profile data available");
@@ -699,7 +697,6 @@ function formatProfileSummary(summary: ProfileSummary): string {
 // Main
 // ============================================================================
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Workflow execution requires sequential setup and error handling
 async function main(): Promise<void> {
   const preciseMode = process.env.PRECISE_COVERAGE === "true";
   const profiler = new WorkflowProfiler(preciseMode);

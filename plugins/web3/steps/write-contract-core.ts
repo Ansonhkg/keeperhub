@@ -74,7 +74,6 @@ export type WriteContractResult =
  *
  * Shared between the web3 write-contract step and the future protocol-write step.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Contract interaction requires extensive validation
 export async function writeContractCore(
   input: WriteContractCoreInput
 ): Promise<WriteContractResult> {

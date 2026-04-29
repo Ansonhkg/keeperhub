@@ -13,6 +13,7 @@ import {
   gatePayment,
   type PaymentMeta,
 } from "@/lib/payments/router";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import { executeWorkflow } from "@/lib/workflow-executor.workflow";
 import type { WorkflowEdge, WorkflowNode } from "@/lib/workflow-store";
 import { buildCallCompletionResponse } from "@/lib/x402/execution-wait";
@@ -379,41 +380,44 @@ async function handleReadWorkflow(
   return createAndStartExecution(workflow, body);
 }
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ slug: string }> }
-): Promise<NextResponse> {
-  try {
-    const rateLimited = checkCallRateLimit(request);
-    if (rateLimited) {
-      return rateLimited;
-    }
+export const POST = withTracedApiHandler(
+  "POST /api/mcp/workflows/:slug/call",
+  async function POST(
+    request: Request,
+    { params }: { params: Promise<{ slug: string }> }
+  ): Promise<NextResponse> {
+    try {
+      const rateLimited = checkCallRateLimit(request);
+      if (rateLimited) {
+        return rateLimited;
+      }
 
-    const { slug } = await params;
+      const { slug } = await params;
 
-    const workflow = await lookupWorkflow(slug);
-    if (!workflow) {
+      const workflow = await lookupWorkflow(slug);
+      if (!workflow) {
+        return NextResponse.json(
+          { error: "Workflow not found" },
+          { status: 404, headers: corsHeaders }
+        );
+      }
+
+      if (workflow.workflowType === "write") {
+        return handleWriteWorkflow(request, workflow);
+      }
+
+      return await handleReadWorkflow(request, workflow);
+    } catch (err) {
+      logSystemError(
+        ErrorCategory.WORKFLOW_ENGINE,
+        "[x402/call] Unexpected error in call route",
+        err,
+        { endpoint: "/api/mcp/workflows/[slug]/call" }
+      );
       return NextResponse.json(
-        { error: "Workflow not found" },
-        { status: 404, headers: corsHeaders }
+        { error: err instanceof Error ? err.message : "Internal server error" },
+        { status: 500, headers: corsHeaders }
       );
     }
-
-    if (workflow.workflowType === "write") {
-      return handleWriteWorkflow(request, workflow);
-    }
-
-    return await handleReadWorkflow(request, workflow);
-  } catch (err) {
-    logSystemError(
-      ErrorCategory.WORKFLOW_ENGINE,
-      "[x402/call] Unexpected error in call route",
-      err,
-      { endpoint: "/api/mcp/workflows/[slug]/call" }
-    );
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
-      { status: 500, headers: corsHeaders }
-    );
   }
-}
+);

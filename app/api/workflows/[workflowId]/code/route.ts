@@ -6,8 +6,9 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { workflows } from "@/lib/db/schema";
 import { generateWorkflowSDKCode } from "@/lib/workflow-codegen-sdk";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
-export async function GET(
+export const GET = withTracedApiHandler("GET /api/workflows/:workflowId/code", async function GET(
   request: Request,
   context: { params: Promise<{ workflowId: string }> }
 ) {
@@ -78,4 +79,4 @@ export async function GET(
       { status: 500 }
     );
   }
-}
+});

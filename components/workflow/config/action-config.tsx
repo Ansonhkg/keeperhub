@@ -699,7 +699,6 @@ function normalizeActionType(actionType: string): string {
   return actionType;
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex UI logic with many conditional renders
 export function ActionConfig({
   config,
   onUpdateConfig,
@@ -828,7 +827,6 @@ export function ActionConfig({
 
   // Check if there are existing connections for this integration type
   const hasExistingConnections = useMemo(() => {
-    // biome-ignore lint/style/useBlockStatements: upstream code
     if (!integrationType) return false;
     return globalIntegrations.some((i) => i.type === integrationType);
   }, [integrationType, globalIntegrations]);

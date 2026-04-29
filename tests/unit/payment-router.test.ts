@@ -244,9 +244,9 @@ describe("buildDual402Response", () => {
     // extensions.bazaar.schema.properties.input.properties.body and
     // extensions.bazaar.schema.properties.output.properties.example -- see
     // @agentcash/discovery dist/index.js extractSchemas2.
-    expect(body.extensions.bazaar.schema.properties.input.properties.body).toEqual(
-      inputSchema
-    );
+    expect(
+      body.extensions.bazaar.schema.properties.input.properties.body
+    ).toEqual(inputSchema);
     expect(
       body.extensions.bazaar.schema.properties.output.properties.example
     ).toEqual({ executionId: "exec_abc123", status: "running" });

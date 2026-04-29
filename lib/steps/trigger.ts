@@ -4,6 +4,7 @@
  */
 import "server-only";
 
+import type { TraceContext } from "@keeperhub/trace-sdk/server";
 import {
   logWorkflowComplete,
   type StepInput,
@@ -24,6 +25,7 @@ export type TriggerInput = StepInput & {
     output?: unknown;
     error?: string;
     startTime: number;
+    traceContext?: TraceContext;
   };
 };
 

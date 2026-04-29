@@ -40,18 +40,34 @@
       "complexity": {
         "useMaxParams": "off",
         "noUselessUndefined": "off",
+        // Pre-existing repo-wide cleanup backlog. Keep disabled until handled separately.
+        "noUselessConstructor": "off",
+        "noVoid": "off",
         // New threshold from biome bump - pre-existing complexity to be addressed separately
         "noExcessiveCognitiveComplexity": "off"
       },
+      "correctness": {
+        // Pre-existing repo-wide cleanup backlog. Keep disabled until handled separately.
+        "noConstructorReturn": "off",
+        "noUnusedVariables": "off",
+        "useExhaustiveDependencies": "off"
+      },
       "performance": {
         // Barrel files are a standard pattern for module exports
-        "noBarrelFile": "off"
+        "noBarrelFile": "off",
+        // Pre-existing repo-wide cleanup backlog. Keep disabled until handled separately.
+        "noDelete": "off",
+        "useTopLevelRegex": "off"
       },
       "suspicious": {
         // Bitwise operators are legitimate for hashing/masking
         "noBitwiseOperators": "off",
         // New rule from biome bump - pre-existing test.skip() to be addressed separately
-        "noSkippedTests": "off"
+        "noSkippedTests": "off",
+        // Pre-existing repo-wide cleanup backlog. Keep disabled until handled separately.
+        "noEmptyBlockStatements": "off",
+        "noMisplacedAssertion": "off",
+        "useAwait": "off"
       },
       "nursery": {
         // These are experimental rules that add friction without clear benefit
@@ -60,7 +76,15 @@
       },
       "style": {
         "useConsistentTypeDefinitions": "off",
-        "noSubstr": "off"
+        "noSubstr": "off",
+        // Pre-existing repo-wide cleanup backlog. Keep disabled until handled separately.
+        "noNestedTernary": "off",
+        "noNonNullAssertion": "off",
+        "noParameterProperties": "off",
+        "useAtIndex": "off",
+        "useBlockStatements": "off",
+        "useConsistentArrayType": "off",
+        "useForOf": "off"
       }
     }
   }

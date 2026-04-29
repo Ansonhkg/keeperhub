@@ -3,6 +3,10 @@
  * Replaces server actions with API endpoints
  */
 
+import type {
+  DiagnosticRun,
+  DiagnosticRunSummary,
+} from "@keeperhub/trace-sdk/core";
 import type { VoteDirection } from "@/lib/workflow/votes";
 import type { IntegrationConfig, IntegrationType } from "./types/integration";
 import type { WorkflowEdge, WorkflowNode } from "./workflow-store";
@@ -254,18 +258,20 @@ function processStreamLine(
     return;
   }
 
+  let message: StreamMessage;
   try {
-    const message = JSON.parse(line) as StreamMessage;
-
-    if (message.type === "operation" && message.operation) {
-      applyOperation(message.operation, state);
-      onUpdate({ ...state.currentData });
-    } else if (message.type === "error") {
-      console.error("[API Client] Error:", message.error);
-      throw new Error(message.error);
-    }
+    message = JSON.parse(line) as StreamMessage;
   } catch (error) {
     console.error("[API Client] Failed to parse JSONL line:", error);
+    return;
+  }
+
+  if (message.type === "operation" && message.operation) {
+    applyOperation(message.operation, state);
+    onUpdate({ ...state.currentData });
+  } else if (message.type === "error") {
+    console.error("[API Client] Error:", message.error);
+    throw new Error(message.error || "Stream request failed");
   }
 }
 
@@ -852,6 +858,68 @@ export const publicTagApi = {
     }),
 };
 
+export type DiagnosticsSummary = {
+  totalRuns: number;
+  totalEvents: number;
+  totalSpans: number;
+  approximateFootprintBytes: number;
+  capabilities: string[];
+  statuses: Record<string, number>;
+};
+
+export type DiagnosticsRunsQuery = {
+  page?: number;
+  pageSize?: number;
+  status?: string;
+  capability?: string;
+  search?: string;
+};
+
+function diagnosticsQueryString(query: DiagnosticsRunsQuery = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value != null && value !== "") {
+      params.set(key, String(value));
+    }
+  }
+  const serialized = params.toString();
+  return serialized ? `?${serialized}` : "";
+}
+
+export const diagnosticsApi = {
+  getSummary: () =>
+    apiCall<{ ok: true; summary: DiagnosticsSummary }>(
+      "/api/diagnostics/summary"
+    ),
+
+  listRuns: (query?: DiagnosticsRunsQuery) =>
+    apiCall<{
+      ok: true;
+      runs: DiagnosticRunSummary[];
+      total: number;
+      page: number;
+      pageSize: number;
+      capabilities: string[];
+    }>(`/api/diagnostics/runs${diagnosticsQueryString(query)}`),
+
+  getRun: (runId: string) =>
+    apiCall<{ ok: true; run: DiagnosticRun }>(`/api/diagnostics/runs/${runId}`),
+
+  cleanup: (retentionDays: number) =>
+    apiCall<{ ok: true; removed: number; kept: number }>(
+      `/api/diagnostics/runs?retentionDays=${retentionDays}`,
+      {
+        method: "DELETE",
+      }
+    ),
+
+  ingestEvent: (event: unknown) =>
+    apiCall<{ ok: true; recorded: number }>("/api/diagnostics/events", {
+      body: JSON.stringify(event),
+      method: "POST",
+    }),
+};
+
 export const projectApi = {
   getAll: () => apiCall<Project[]>("/api/projects"),
 
@@ -879,6 +947,7 @@ export const projectApi = {
 export const api = {
   ai: aiApi,
   aiGateway: aiGatewayApi,
+  diagnostics: diagnosticsApi,
   integration: integrationApi,
   organization: organizationApi,
   project: projectApi,

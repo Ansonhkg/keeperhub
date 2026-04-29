@@ -162,7 +162,6 @@ async function databaseQuery(
  * Database Query Step
  * Executes a SQL query against a PostgreSQL database
  */
-// biome-ignore lint/suspicious/useAwait: workflow "use step" requires async
 export async function databaseQueryStep(
   input: DatabaseQueryInput
 ): Promise<DatabaseQueryResult> {

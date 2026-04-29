@@ -1,17 +1,24 @@
 import { NextResponse } from "next/server";
 import "@/protocols";
 import { getProtocol } from "@/lib/protocol-registry";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
-export async function GET(
-  _request: Request,
-  context: { params: Promise<{ slug: string }> }
-): Promise<NextResponse> {
-  const { slug } = await context.params;
-  const protocol = getProtocol(slug);
+export const GET = withTracedApiHandler(
+  "GET /api/protocols/:slug",
+  async function GET(
+    _request: Request,
+    context: { params: Promise<{ slug: string }> }
+  ): Promise<NextResponse> {
+    const { slug } = await context.params;
+    const protocol = getProtocol(slug);
 
-  if (!protocol) {
-    return NextResponse.json({ error: "Protocol not found" }, { status: 404 });
+    if (!protocol) {
+      return NextResponse.json(
+        { error: "Protocol not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(protocol);
   }
-
-  return NextResponse.json(protocol);
-}
+);

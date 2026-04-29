@@ -172,7 +172,6 @@ function analyzeFile(filePath: string): OperationMetrics {
     resolveRpcConfig: "sdk",
   };
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: AST visitor pattern requires checking many node types
   function visit(node: ts.Node) {
     // Await expressions
     if (ts.isAwaitExpression(node)) {
@@ -185,13 +184,10 @@ function analyzeFile(filePath: string): OperationMetrics {
 
       // Check for external calls
       try {
-        // biome-ignore lint/style/noNonNullAssertion: sourceFile is validated at function entry
         const callText = node.expression.getText(sourceFile!);
         for (const [pattern, type] of Object.entries(externalPatterns)) {
           if (callText.includes(pattern) || callText.startsWith(pattern)) {
-            // biome-ignore lint/style/noNonNullAssertion: sourceFile is validated at function entry
             const pos = node.getStart(sourceFile!);
-            // biome-ignore lint/style/noNonNullAssertion: sourceFile is validated at function entry
             const { line } = sourceFile!.getLineAndCharacterOfPosition(pos);
             metrics.externalCalls.push({
               name: callText,
@@ -415,7 +411,6 @@ function analyzeSteps(options: {
       (a, b) => b.cyclomaticComplexity - a.cyclomaticComplexity
     );
     result.summary.mostComplex = `${sorted[0].pluginName}/${sorted[0].stepName}`;
-    // biome-ignore lint/style/noNonNullAssertion: array is guaranteed non-empty by containing if block
     const last = sorted.at(-1)!;
     result.summary.leastComplex = `${last.pluginName}/${last.stepName}`;
   }

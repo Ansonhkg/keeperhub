@@ -5,8 +5,9 @@ import { db } from "@/lib/db";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { workflowExecutionLogs, workflowExecutions } from "@/lib/db/schema";
 import { redactSensitiveData } from "@/lib/utils/redact";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
-export async function GET(
+export const GET = withTracedApiHandler("GET /api/workflows/executions/:executionId/logs", async function GET(
   request: Request,
   context: { params: Promise<{ executionId: string }> }
 ) {
@@ -88,4 +89,4 @@ export async function GET(
       { status: 500 }
     );
   }
-}
+});

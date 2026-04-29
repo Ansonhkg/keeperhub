@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiKeys } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 // Generate a secure API key
 function generateApiKey(): { key: string; hash: string; prefix: string } {
@@ -16,105 +17,116 @@ function generateApiKey(): { key: string; hash: string; prefix: string } {
 }
 
 // GET - List all API keys for the current user
-export async function GET(request: Request) {
-  try {
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    });
-
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const keys = await db.query.apiKeys.findMany({
-      where: eq(apiKeys.userId, session.user.id),
-      columns: {
-        id: true,
-        name: true,
-        keyPrefix: true,
-        createdAt: true,
-        lastUsedAt: true,
-      },
-      orderBy: (table, { desc }) => [desc(table.createdAt)],
-    });
-
-    return NextResponse.json(keys);
-  } catch (error) {
-    logSystemError(ErrorCategory.DATABASE, "Failed to list API keys", error, {
-      endpoint: "/api/api-keys",
-      operation: "get",
-    });
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to list API keys",
-      },
-      { status: 500 }
-    );
-  }
-}
-
-// POST - Create a new API key
-export async function POST(request: Request) {
-  try {
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    });
-
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Check if user is anonymous
-    const isAnonymous =
-      session.user.name === "Anonymous" ||
-      session.user.email?.startsWith("temp-");
-
-    if (isAnonymous) {
-      return NextResponse.json(
-        { error: "Anonymous users cannot create API keys" },
-        { status: 403 }
-      );
-    }
-
-    const body = await request.json().catch(() => ({}));
-    const name = body.name || null;
-
-    // Generate new API key
-    const { key, hash, prefix } = generateApiKey();
-
-    // Save to database
-    const [newKey] = await db
-      .insert(apiKeys)
-      .values({
-        userId: session.user.id,
-        name,
-        keyHash: hash,
-        keyPrefix: prefix,
-      })
-      .returning({
-        id: apiKeys.id,
-        name: apiKeys.name,
-        keyPrefix: apiKeys.keyPrefix,
-        createdAt: apiKeys.createdAt,
+export const GET = withTracedApiHandler(
+  "GET /api/api-keys",
+  async function GET(request: Request) {
+    try {
+      const session = await auth.api.getSession({
+        headers: request.headers,
       });
 
-    // Return the full key only on creation (won't be shown again)
-    return NextResponse.json({
-      ...newKey,
-      key, // Full key - only returned once!
-    });
-  } catch (error) {
-    logSystemError(ErrorCategory.DATABASE, "Failed to create API key", error, {
-      endpoint: "/api/api-keys",
-      operation: "post",
-    });
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to create API key",
-      },
-      { status: 500 }
-    );
+      if (!session?.user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const keys = await db.query.apiKeys.findMany({
+        where: eq(apiKeys.userId, session.user.id),
+        columns: {
+          id: true,
+          name: true,
+          keyPrefix: true,
+          createdAt: true,
+          lastUsedAt: true,
+        },
+        orderBy: (table, { desc }) => [desc(table.createdAt)],
+      });
+
+      return NextResponse.json(keys);
+    } catch (error) {
+      logSystemError(ErrorCategory.DATABASE, "Failed to list API keys", error, {
+        endpoint: "/api/api-keys",
+        operation: "get",
+      });
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : "Failed to list API keys",
+        },
+        { status: 500 }
+      );
+    }
   }
-}
+);
+
+// POST - Create a new API key
+export const POST = withTracedApiHandler(
+  "POST /api/api-keys",
+  async function POST(request: Request) {
+    try {
+      const session = await auth.api.getSession({
+        headers: request.headers,
+      });
+
+      if (!session?.user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      // Check if user is anonymous
+      const isAnonymous =
+        session.user.name === "Anonymous" ||
+        session.user.email?.startsWith("temp-");
+
+      if (isAnonymous) {
+        return NextResponse.json(
+          { error: "Anonymous users cannot create API keys" },
+          { status: 403 }
+        );
+      }
+
+      const body = await request.json().catch(() => ({}));
+      const name = body.name || null;
+
+      // Generate new API key
+      const { key, hash, prefix } = generateApiKey();
+
+      // Save to database
+      const [newKey] = await db
+        .insert(apiKeys)
+        .values({
+          userId: session.user.id,
+          name,
+          keyHash: hash,
+          keyPrefix: prefix,
+        })
+        .returning({
+          id: apiKeys.id,
+          name: apiKeys.name,
+          keyPrefix: apiKeys.keyPrefix,
+          createdAt: apiKeys.createdAt,
+        });
+
+      // Return the full key only on creation (won't be shown again)
+      return NextResponse.json({
+        ...newKey,
+        key, // Full key - only returned once!
+      });
+    } catch (error) {
+      logSystemError(
+        ErrorCategory.DATABASE,
+        "Failed to create API key",
+        error,
+        {
+          endpoint: "/api/api-keys",
+          operation: "post",
+        }
+      );
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : "Failed to create API key",
+        },
+        { status: 500 }
+      );
+    }
+  }
+);

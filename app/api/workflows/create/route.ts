@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import { NextResponse } from "next/server";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { getDualAuthContext } from "@/lib/middleware/auth-helpers";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import { db } from "@/lib/db";
 import { validateWorkflowIntegrations } from "@/lib/db/integrations";
 import { projects, tags, workflows } from "@/lib/db/schema";
@@ -78,7 +79,7 @@ async function generateWorkflowName(
   return `Untitled ${count}`;
 }
 
-export async function POST(request: Request) {
+async function createWorkflowRoute(request: Request) {
   try {
     const authContext = await getDualAuthContext(request);
     if ("error" in authContext) {
@@ -220,3 +221,10 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const POST = withTracedApiHandler(
+  "POST /api/workflows/create",
+  async function POST(request: Request) {
+    return await createWorkflowRoute(request);
+  }
+);

@@ -3,6 +3,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { resolveAbi } from "@/lib/abi-cache";
 import { enterApiExecuteErrorContext } from "@/lib/db/org-helpers";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import { getErrorMessage } from "@/lib/utils";
 import { readContractCore } from "@/plugins/web3/steps/read-contract-core";
 import { writeContractCore } from "@/plugins/web3/steps/write-contract-core";
@@ -135,122 +136,131 @@ async function executeConditionalWrite(
   );
 }
 
-export async function POST(request: Request): Promise<NextResponse> {
-  const apiKeyCtx = await validateApiKey(request);
-  if (!apiKeyCtx) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const POST = withTracedApiHandler(
+  "POST /api/execute/check-and-execute",
+  async function POST(request: Request): Promise<NextResponse> {
+    const apiKeyCtx = await validateApiKey(request);
+    if (!apiKeyCtx) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-  // Enter ALS error context so plugin step errors carry org labels
-  await enterApiExecuteErrorContext(apiKeyCtx.organizationId);
+    // Enter ALS error context so plugin step errors carry org labels
+    await enterApiExecuteErrorContext(apiKeyCtx.organizationId);
 
-  const rateLimit = checkRateLimit(apiKeyCtx.apiKeyId);
-  if (!rateLimit.allowed) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded" },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfter) } }
+    const rateLimit = checkRateLimit(apiKeyCtx.apiKeyId);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded" },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rateLimit.retryAfter) },
+        }
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const validation = validateCheckAndExecuteInput(body);
+    if (!validation.valid) {
+      return NextResponse.json(validation.error, { status: 400 });
+    }
+
+    const network = body.network as string;
+    const condition = body.condition as ConditionInput;
+    const action = body.action as ActionBody;
+
+    const readAbiResult = await resolveAbiFromField(
+      body.contractAddress as string,
+      network,
+      body.abi
     );
-  }
+    if ("error" in readAbiResult) {
+      return NextResponse.json(
+        { error: readAbiResult.error, field: "abi" },
+        { status: 400 }
+      );
+    }
 
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+    const readResult = await readContractCore({
+      contractAddress: body.contractAddress as string,
+      network,
+      abi: readAbiResult.abi,
+      abiFunction: body.functionName as string,
+      functionArgs: body.functionArgs as string | undefined,
+      _context: { organizationId: apiKeyCtx.organizationId },
+    });
 
-  const validation = validateCheckAndExecuteInput(body);
-  if (!validation.valid) {
-    return NextResponse.json(validation.error, { status: 400 });
-  }
+    if (!readResult.success) {
+      return NextResponse.json({ error: readResult.error }, { status: 400 });
+    }
 
-  const network = body.network as string;
-  const condition = body.condition as ConditionInput;
-  const action = body.action as ActionBody;
+    const conditionResult = evaluateCondition(readResult.result, condition);
 
-  const readAbiResult = await resolveAbiFromField(
-    body.contractAddress as string,
-    network,
-    body.abi
-  );
-  if ("error" in readAbiResult) {
-    return NextResponse.json(
-      { error: readAbiResult.error, field: "abi" },
-      { status: 400 }
+    if (!conditionResult.met) {
+      return NextResponse.json(
+        { executed: false, conditionResult },
+        { status: 200 }
+      );
+    }
+
+    const writeAbiResult = await resolveAbiFromField(
+      action.contractAddress,
+      network,
+      action.abi
     );
-  }
+    if ("error" in writeAbiResult) {
+      return NextResponse.json(
+        { error: writeAbiResult.error, field: "action.abi" },
+        { status: 400 }
+      );
+    }
 
-  const readResult = await readContractCore({
-    contractAddress: body.contractAddress as string,
-    network,
-    abi: readAbiResult.abi,
-    abiFunction: body.functionName as string,
-    functionArgs: body.functionArgs as string | undefined,
-    _context: { organizationId: apiKeyCtx.organizationId },
-  });
-
-  if (!readResult.success) {
-    return NextResponse.json({ error: readResult.error }, { status: 400 });
-  }
-
-  const conditionResult = evaluateCondition(readResult.result, condition);
-
-  if (!conditionResult.met) {
-    return NextResponse.json(
-      { executed: false, conditionResult },
-      { status: 200 }
+    const actionAbiParsed = JSON.parse(writeAbiResult.abi) as Array<{
+      type?: string;
+      name?: string;
+      stateMutability?: string;
+    }>;
+    const actionFn = actionAbiParsed.find(
+      (f) => f.name === action.functionName
     );
-  }
 
-  const writeAbiResult = await resolveAbiFromField(
-    action.contractAddress,
-    network,
-    action.abi
-  );
-  if ("error" in writeAbiResult) {
-    return NextResponse.json(
-      { error: writeAbiResult.error, field: "action.abi" },
-      { status: 400 }
-    );
-  }
+    if (!actionFn) {
+      return NextResponse.json(
+        {
+          error: `Function "${action.functionName}" not found in action ABI`,
+          field: "action.functionName",
+        },
+        { status: 400 }
+      );
+    }
 
-  const actionAbiParsed = JSON.parse(writeAbiResult.abi) as Array<{
-    type?: string;
-    name?: string;
-    stateMutability?: string;
-  }>;
-  const actionFn = actionAbiParsed.find((f) => f.name === action.functionName);
+    const isReadOnly =
+      actionFn.stateMutability === "view" ||
+      actionFn.stateMutability === "pure";
 
-  if (!actionFn) {
-    return NextResponse.json(
-      {
-        error: `Function "${action.functionName}" not found in action ABI`,
-        field: "action.functionName",
-      },
-      { status: 400 }
-    );
-  }
+    if (isReadOnly) {
+      return executeConditionalRead(
+        action,
+        network,
+        writeAbiResult.abi,
+        apiKeyCtx.organizationId,
+        conditionResult
+      );
+    }
 
-  const isReadOnly =
-    actionFn.stateMutability === "view" || actionFn.stateMutability === "pure";
-
-  if (isReadOnly) {
-    return executeConditionalRead(
+    return executeConditionalWrite(
       action,
       network,
       writeAbiResult.abi,
       apiKeyCtx.organizationId,
+      apiKeyCtx.apiKeyId,
+      body,
       conditionResult
     );
   }
-
-  return executeConditionalWrite(
-    action,
-    network,
-    writeAbiResult.abi,
-    apiKeyCtx.organizationId,
-    apiKeyCtx.apiKeyId,
-    body,
-    conditionResult
-  );
-}
+);

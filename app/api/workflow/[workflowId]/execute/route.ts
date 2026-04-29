@@ -13,7 +13,12 @@ import { validateWorkflowIntegrations } from "@/lib/db/integrations";
 import { getOrgSlug } from "@/lib/db/org-helpers";
 import { workflowExecutions, workflows } from "@/lib/db/schema";
 import { executeWorkflow } from "@/lib/workflow-executor.workflow";
+import { startWorkflowTraceRun } from "@/lib/trace/workflow-trace";
+import { isTraceEnabled } from "@/lib/trace/feature-flag";
 import type { WorkflowEdge, WorkflowNode } from "@/lib/workflow-store";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
+import { getKeeperTraceProviders } from "@/lib/trace/providers";
+import type { TraceContext } from "@keeperhub/trace-sdk/server";
 
 async function executeWorkflowBackground(
   executionId: string,
@@ -23,7 +28,9 @@ async function executeWorkflowBackground(
   input: Record<string, unknown>,
   organizationId?: string | null,
   ownerId?: string,
-  organizationSlug?: string
+  organizationSlug?: string,
+  triggerType = "manual",
+  parentTraceContext?: TraceContext | null
 ) {
   try {
     console.log("[Workflow Execute] Starting execution:", executionId);
@@ -39,6 +46,17 @@ async function executeWorkflowBackground(
     });
 
     // Use start() from workflow/api to properly execute the workflow
+    const traceContext = await startWorkflowTraceRun({
+      executionId,
+      organizationId,
+      parentSpanId:
+        parentTraceContext?.spanId ?? parentTraceContext?.parentSpanId ?? null,
+      traceId: parentTraceContext?.traceId,
+      trigger: triggerType,
+      userId: ownerId ?? "unknown",
+      workflowId,
+    });
+
     const run = await start(executeWorkflow, [
       {
         nodes,
@@ -49,6 +67,7 @@ async function executeWorkflowBackground(
         organizationId: organizationId ?? undefined,
         ownerId,
         organizationSlug,
+        traceContext: traceContext ?? undefined,
       },
     ]);
 
@@ -73,8 +92,7 @@ async function executeWorkflowBackground(
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Workflow execution requires complex error handling and validation
-export async function POST(
+export const POST = withTracedApiHandler("POST /api/workflow/:workflowId/execute", async function POST(
   request: Request,
   context: { params: Promise<{ workflowId: string }> }
 ) {
@@ -224,6 +242,9 @@ export async function POST(
 
     // Resolve org slug for log labels (cached per request)
     const organizationSlug = await getOrgSlug(workflow.organizationId);
+    const parentTraceContext = isTraceEnabled()
+      ? getKeeperTraceProviders().contextProvider.get()
+      : null;
 
     // Execute the workflow in the background (don't await)
     executeWorkflowBackground(
@@ -234,7 +255,9 @@ export async function POST(
       input,
       workflow.organizationId,
       workflow.userId,
-      organizationSlug
+      organizationSlug,
+      triggerType,
+      parentTraceContext
     );
 
     // Return immediately with the execution ID
@@ -254,4 +277,4 @@ export async function POST(
       { status: 500 }
     );
   }
-}
+});

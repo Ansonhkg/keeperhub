@@ -10,6 +10,7 @@ import {
 } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import type { VoteDirection } from "@/lib/workflow/votes";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 type TagInfo = { id: string; name: string; slug: string };
 
 async function resolveTagFilter(tagSlug: string): Promise<string[] | "empty"> {
@@ -134,7 +135,7 @@ async function fetchUserDuplications(
   return result;
 }
 
-export async function GET(request: Request): Promise<NextResponse> {
+export const GET = withTracedApiHandler("GET /api/workflows/public", async function GET(request: Request): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url);
     const isFeaturedRequest = searchParams.get("featured") === "true";
@@ -251,4 +252,4 @@ export async function GET(request: Request): Promise<NextResponse> {
       { status: 500 }
     );
   }
-}
+});

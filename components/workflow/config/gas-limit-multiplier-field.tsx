@@ -123,7 +123,6 @@ export function GasLimitMultiplierField({
   ]);
 
   // Fetch gas estimate with debounce
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: fetch with validation, error handling, and abort support
   const fetchEstimate = useCallback(async () => {
     if (!(canEstimate && chainId && actionSlug)) {
       setEstimate({ status: "idle" });

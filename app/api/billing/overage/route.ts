@@ -9,6 +9,7 @@ import {
 } from "@/lib/db/schema";
 import { authenticateInternalService } from "@/lib/internal-service-auth";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 type SingleOrgBody = {
   scan?: never;
@@ -34,55 +35,58 @@ type RequestBody = SingleOrgBody | ScanBody;
  * - Scan mode: `{ scan: true }` -- find all active subscriptions with ended
  *   periods that haven't been billed yet, then bill each
  */
-export async function POST(request: Request): Promise<NextResponse> {
-  if (!isBillingEnabled()) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+export const POST = withTracedApiHandler(
+  "POST /api/billing/overage",
+  async function POST(request: Request): Promise<NextResponse> {
+    if (!isBillingEnabled()) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
 
-  const auth = authenticateInternalService(request);
-  if (!auth.authenticated) {
-    return NextResponse.json(
-      { error: auth.error ?? "Unauthorized" },
-      { status: 401 }
-    );
-  }
-
-  const body = (await request.json()) as RequestBody;
-
-  if (body.scan) {
-    return handleScan();
-  }
-
-  if (body.organizationId && body.periodStart && body.periodEnd) {
-    const periodStart = new Date(body.periodStart);
-    const periodEnd = new Date(body.periodEnd);
-
-    if (
-      Number.isNaN(periodStart.getTime()) ||
-      Number.isNaN(periodEnd.getTime())
-    ) {
+    const auth = authenticateInternalService(request);
+    if (!auth.authenticated) {
       return NextResponse.json(
-        { error: "Invalid date format for periodStart or periodEnd" },
-        { status: 400 }
+        { error: auth.error ?? "Unauthorized" },
+        { status: 401 }
       );
     }
 
-    const result = await billOverageForOrg(
-      body.organizationId,
-      periodStart,
-      periodEnd
-    );
-    return NextResponse.json(result);
-  }
+    const body = (await request.json()) as RequestBody;
 
-  return NextResponse.json(
-    {
-      error:
-        "Provide { scan: true } or { organizationId, periodStart, periodEnd }",
-    },
-    { status: 400 }
-  );
-}
+    if (body.scan) {
+      return handleScan();
+    }
+
+    if (body.organizationId && body.periodStart && body.periodEnd) {
+      const periodStart = new Date(body.periodStart);
+      const periodEnd = new Date(body.periodEnd);
+
+      if (
+        Number.isNaN(periodStart.getTime()) ||
+        Number.isNaN(periodEnd.getTime())
+      ) {
+        return NextResponse.json(
+          { error: "Invalid date format for periodStart or periodEnd" },
+          { status: 400 }
+        );
+      }
+
+      const result = await billOverageForOrg(
+        body.organizationId,
+        periodStart,
+        periodEnd
+      );
+      return NextResponse.json(result);
+    }
+
+    return NextResponse.json(
+      {
+        error:
+          "Provide { scan: true } or { organizationId, periodStart, periodEnd }",
+      },
+      { status: 400 }
+    );
+  }
+);
 
 type OrgBillingResult = {
   organizationId: string;

@@ -8,6 +8,7 @@ import { UnknownEventTypeError } from "@/lib/billing/providers/stripe";
 import { db } from "@/lib/db";
 import { billingEvents } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 async function claimEvent(
   providerEventId: string,
@@ -40,71 +41,77 @@ async function releaseClaim(providerEventId: string): Promise<void> {
     .where(eq(billingEvents.providerEventId, providerEventId));
 }
 
-export async function POST(request: Request): Promise<NextResponse> {
-  if (!isBillingEnabled()) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  try {
-    const body = await request.text();
-
-    const signature = request.headers.get("stripe-signature");
-    if (!signature) {
-      return NextResponse.json(
-        { error: "Missing stripe-signature header" },
-        { status: 400 }
-      );
+export const POST = withTracedApiHandler(
+  "POST /api/billing/webhooks/stripe",
+  async function POST(request: Request): Promise<NextResponse> {
+    if (!isBillingEnabled()) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const provider = getBillingProvider();
-    let event: BillingWebhookEvent;
     try {
-      event = await provider.verifyWebhook(body, signature);
-    } catch (error) {
-      if (error instanceof UnknownEventTypeError) {
-        return NextResponse.json({ received: true });
-      }
-      if (
-        error instanceof Error &&
-        error.message === "STRIPE_WEBHOOK_SECRET not configured"
-      ) {
+      const body = await request.text();
+
+      const signature = request.headers.get("stripe-signature");
+      if (!signature) {
         return NextResponse.json(
-          { error: "Webhook not configured" },
-          { status: 500 }
+          { error: "Missing stripe-signature header" },
+          { status: 400 }
         );
       }
-      return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
-    }
 
-    const claimed = await claimEvent(
-      event.providerEventId,
-      event.type,
-      event.data
-    );
-    if (!claimed) {
+      const provider = getBillingProvider();
+      let event: BillingWebhookEvent;
+      try {
+        event = await provider.verifyWebhook(body, signature);
+      } catch (error) {
+        if (error instanceof UnknownEventTypeError) {
+          return NextResponse.json({ received: true });
+        }
+        if (
+          error instanceof Error &&
+          error.message === "STRIPE_WEBHOOK_SECRET not configured"
+        ) {
+          return NextResponse.json(
+            { error: "Webhook not configured" },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json(
+          { error: "Invalid signature" },
+          { status: 400 }
+        );
+      }
+
+      const claimed = await claimEvent(
+        event.providerEventId,
+        event.type,
+        event.data
+      );
+      if (!claimed) {
+        return NextResponse.json({ received: true });
+      }
+
+      try {
+        await handleBillingEvent(event, provider);
+        await markProcessed(event.providerEventId);
+      } catch (handlerError) {
+        // Release the claim so Stripe retries can re-process this event
+        await releaseClaim(event.providerEventId);
+        throw handlerError;
+      }
+
       return NextResponse.json({ received: true });
+    } catch (error) {
+      logSystemError(
+        ErrorCategory.EXTERNAL_SERVICE,
+        "[Billing Webhook] Handler failed",
+        error,
+        { endpoint: "/api/billing/webhooks/stripe", operation: "post" }
+      );
+      return NextResponse.json(
+        { error: "Webhook processing failed" },
+        { status: 500 }
+      );
     }
-
-    try {
-      await handleBillingEvent(event, provider);
-      await markProcessed(event.providerEventId);
-    } catch (handlerError) {
-      // Release the claim so Stripe retries can re-process this event
-      await releaseClaim(event.providerEventId);
-      throw handlerError;
-    }
-
-    return NextResponse.json({ received: true });
-  } catch (error) {
-    logSystemError(
-      ErrorCategory.EXTERNAL_SERVICE,
-      "[Billing Webhook] Handler failed",
-      error,
-      { endpoint: "/api/billing/webhooks/stripe", operation: "post" }
-    );
-    return NextResponse.json(
-      { error: "Webhook processing failed" },
-      { status: 500 }
-    );
   }
-}
+);

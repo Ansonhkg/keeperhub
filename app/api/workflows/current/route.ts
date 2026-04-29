@@ -6,10 +6,11 @@ import { db } from "@/lib/db";
 import { workflows } from "@/lib/db/schema";
 import { generateId } from "@/lib/utils/id";
 import { sanitizeWorkflowData } from "@/lib/workflow/sanitize-nodes";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 const CURRENT_WORKFLOW_NAME = "~~__CURRENT__~~";
 
-export async function GET(request: Request) {
+export const GET = withTracedApiHandler("GET /api/workflows/current", async function GET(request: Request) {
   try {
     const session = await auth.api.getSession({
       headers: request.headers,
@@ -64,9 +65,9 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withTracedApiHandler("POST /api/workflows/current", async function POST(request: Request) {
   try {
     const session = await auth.api.getSession({
       headers: request.headers,
@@ -161,4 +162,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});

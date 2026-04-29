@@ -75,7 +75,6 @@ function parseChildOutput(stdout: string): ChildOutcome {
  * it, and return the child's outcome. Kills the child on timeout or when
  * the caller's AbortSignal fires.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: single cohesive spawner with timeout + stream aggregation + graceful teardown + signal wiring
 async function runInChild(
   code: string,
   timeoutMs: number,
@@ -150,9 +149,9 @@ async function runInChild(
       finish({
         ok: false,
         errorMessage:
-          parsed.errorMessage !== "Sandbox produced no result"
-            ? parsed.errorMessage
-            : `Sandbox process exited with code ${String(exitCode)}${stderr ? `: ${stderr.trim().slice(0, 500)}` : ""}`,
+          parsed.errorMessage === "Sandbox produced no result"
+            ? `Sandbox process exited with code ${String(exitCode)}${stderr ? `: ${stderr.trim().slice(0, 500)}` : ""}`
+            : parsed.errorMessage,
         logs: [],
       });
     });

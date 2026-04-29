@@ -2,6 +2,7 @@ import { authenticateApiKey } from "@/lib/api-key-auth";
 import { auth } from "@/lib/auth";
 import { authenticateOAuthToken } from "@/lib/mcp/oauth-auth";
 import { getOrgContext } from "@/lib/middleware/org-context";
+import { withServerTraceSpan } from "@/lib/trace/server-span";
 
 export type DualAuthContext =
   | {
@@ -43,33 +44,43 @@ export async function getDualAuthContext(
 ): Promise<DualAuthContext> {
   const required = options?.required ?? true;
 
-  const oauthAuth = await resolveOAuthToken(request);
-  if (oauthAuth) {
-    return {
-      ...oauthAuth,
-      authMethod: "oauth",
-    };
-  }
+  return await withServerTraceSpan(
+    {
+      attributes: { required, route: new URL(request.url).pathname },
+      kind: "auth",
+      label: "Resolve auth context",
+      step: "auth.resolve-dual-context",
+    },
+    async () => {
+      const oauthAuth = await resolveOAuthToken(request);
+      if (oauthAuth) {
+        return {
+          ...oauthAuth,
+          authMethod: "oauth",
+        };
+      }
 
-  const apiKeyAuth = await authenticateApiKey(request);
-  if (apiKeyAuth.authenticated) {
-    return resolveApiKeyContext(apiKeyAuth);
-  }
+      const apiKeyAuth = await authenticateApiKey(request);
+      if (apiKeyAuth.authenticated) {
+        return resolveApiKeyContext(apiKeyAuth);
+      }
 
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session?.user && required) {
-    return { error: "Unauthorized", status: 401 };
-  }
-  if (!session?.user) {
-    return { userId: null, organizationId: null, authMethod: "session" };
-  }
+      const session = await auth.api.getSession({ headers: request.headers });
+      if (!session?.user && required) {
+        return { error: "Unauthorized", status: 401 };
+      }
+      if (!session?.user) {
+        return { userId: null, organizationId: null, authMethod: "session" };
+      }
 
-  const orgContext = await getOrgContext();
-  return {
-    userId: session.user.id,
-    organizationId: orgContext.organization?.id ?? null,
-    authMethod: "session",
-  };
+      const orgContext = await getOrgContext();
+      return {
+        userId: session.user.id,
+        organizationId: orgContext.organization?.id ?? null,
+        authMethod: "session",
+      };
+    }
+  );
 }
 
 function resolveApiKeyContext(apiKeyAuth: {
@@ -90,32 +101,42 @@ function resolveApiKeyContext(apiKeyAuth: {
 export async function resolveOrganizationId(
   request: Request
 ): Promise<{ organizationId: string } | { error: string; status: number }> {
-  const oauthAuth = await resolveOAuthToken(request);
-  if (oauthAuth?.organizationId) {
-    return { organizationId: oauthAuth.organizationId };
-  }
+  return await withServerTraceSpan(
+    {
+      attributes: { route: new URL(request.url).pathname },
+      kind: "auth",
+      label: "Resolve organization context",
+      step: "auth.resolve-organization",
+    },
+    async () => {
+      const oauthAuth = await resolveOAuthToken(request);
+      if (oauthAuth?.organizationId) {
+        return { organizationId: oauthAuth.organizationId };
+      }
 
-  const apiKeyAuth = await authenticateApiKey(request);
+      const apiKeyAuth = await authenticateApiKey(request);
 
-  if (apiKeyAuth.authenticated) {
-    const organizationId = apiKeyAuth.organizationId;
-    if (!organizationId) {
-      return { error: "No active organization", status: 400 };
+      if (apiKeyAuth.authenticated) {
+        const organizationId = apiKeyAuth.organizationId;
+        if (!organizationId) {
+          return { error: "No active organization", status: 400 };
+        }
+        return { organizationId };
+      }
+
+      const session = await auth.api.getSession({ headers: request.headers });
+      if (!session?.user) {
+        return { error: "Unauthorized", status: 401 };
+      }
+
+      const orgContext = await getOrgContext();
+      const organizationId = orgContext.organization?.id;
+      if (!organizationId) {
+        return { error: "No active organization", status: 400 };
+      }
+      return { organizationId };
     }
-    return { organizationId };
-  }
-
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session?.user) {
-    return { error: "Unauthorized", status: 401 };
-  }
-
-  const orgContext = await getOrgContext();
-  const organizationId = orgContext.organization?.id;
-  if (!organizationId) {
-    return { error: "No active organization", status: 400 };
-  }
-  return { organizationId };
+  );
 }
 
 /**
@@ -127,30 +148,43 @@ export async function resolveCreatorContext(
 ): Promise<
   { organizationId: string; userId: string } | { error: string; status: number }
 > {
-  const oauthAuth = await resolveOAuthToken(request);
-  if (oauthAuth) {
-    return validateCreatorFields(oauthAuth.organizationId, oauthAuth.userId);
-  }
+  return await withServerTraceSpan(
+    {
+      attributes: { route: new URL(request.url).pathname },
+      kind: "auth",
+      label: "Resolve creator context",
+      step: "auth.resolve-creator",
+    },
+    async () => {
+      const oauthAuth = await resolveOAuthToken(request);
+      if (oauthAuth) {
+        return validateCreatorFields(
+          oauthAuth.organizationId,
+          oauthAuth.userId
+        );
+      }
 
-  const apiKeyAuth = await authenticateApiKey(request);
-  if (apiKeyAuth.authenticated) {
-    return validateCreatorFields(
-      apiKeyAuth.organizationId ?? null,
-      apiKeyAuth.userId ?? null
-    );
-  }
+      const apiKeyAuth = await authenticateApiKey(request);
+      if (apiKeyAuth.authenticated) {
+        return validateCreatorFields(
+          apiKeyAuth.organizationId ?? null,
+          apiKeyAuth.userId ?? null
+        );
+      }
 
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session?.user) {
-    return { error: "Unauthorized", status: 401 };
-  }
+      const session = await auth.api.getSession({ headers: request.headers });
+      if (!session?.user) {
+        return { error: "Unauthorized", status: 401 };
+      }
 
-  const context = await getOrgContext();
-  const organizationId = context.organization?.id ?? null;
-  if (!organizationId) {
-    return { error: "No active organization", status: 400 };
-  }
-  return { organizationId, userId: session.user.id };
+      const context = await getOrgContext();
+      const organizationId = context.organization?.id ?? null;
+      if (!organizationId) {
+        return { error: "No active organization", status: 400 };
+      }
+      return { organizationId, userId: session.user.id };
+    }
+  );
 }
 
 function validateCreatorFields(

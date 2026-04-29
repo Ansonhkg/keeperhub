@@ -159,7 +159,6 @@ function DesktopOverlayContainer() {
 
 
   // Measure content height when it changes, reset on fresh open
-  // biome-ignore lint/correctness/useExhaustiveDependencies: upstream code
   useLayoutEffect(() => {
     const isFreshOpen = isOpen && !wasOpenRef.current;
     wasOpenRef.current = isOpen;
@@ -340,7 +339,6 @@ function MobileOverlayContainer() {
   const currentIndex = renderStack.length - 1;
 
   // Measure content height when it changes, reset on fresh open
-  // biome-ignore lint/correctness/useExhaustiveDependencies: upstream code
   useLayoutEffect(() => {
     const isFreshOpen = isOpen && !wasOpenRef.current;
     wasOpenRef.current = isOpen;

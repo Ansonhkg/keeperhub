@@ -11,11 +11,13 @@ import { GitHubStarsLoader } from "@/components/github-stars-loader";
 import { GitHubStarsProvider } from "@/components/github-stars-provider";
 import { GlobalModals } from "@/components/global-modals";
 import { LayoutContent } from "@/components/layout-content";
+import { KeeperHubLiveTrace } from "@/components/live-trace/keeperhub-live-trace";
 import { MobileWarningDialog } from "@/components/mobile-warning-dialog";
 import { OverlayProvider } from "@/components/overlays/overlay-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { mono, sans } from "@/lib/fonts";
+import { isTraceEnabled } from "@/lib/trace/feature-flag";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -82,6 +84,9 @@ const RootLayout = ({ children }: RootLayoutProps) => (
               <Toaster />
               <GlobalModals />
               <MobileWarningDialog />
+              <Suspense fallback={null}>
+                <KeeperHubLiveTrace enabled={isTraceEnabled()} />
+              </Suspense>
             </OverlayProvider>
           </AuthProvider>
         </Provider>

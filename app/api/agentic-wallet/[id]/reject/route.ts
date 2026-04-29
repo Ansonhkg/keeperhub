@@ -16,6 +16,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { agenticWallets } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 export const dynamic = "force-dynamic";
 
@@ -41,73 +42,76 @@ async function ownerCheck(
   return "ok";
 }
 
-export async function POST(
-  request: Request,
-  { params }: RouteParams
-): Promise<Response> {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const POST = withTracedApiHandler(
+  "POST /api/agentic-wallet/:id/reject",
+  async function POST(
+    request: Request,
+    { params }: RouteParams
+  ): Promise<Response> {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-  const { id } = await params;
-  const userId = session.user.id;
+    const { id } = await params;
+    const userId = session.user.id;
 
-  try {
-    const check = await checkApprovalForResolve(id);
-    if (!check.ok) {
-      if (check.reason === "not-found") {
+    try {
+      const check = await checkApprovalForResolve(id);
+      if (!check.ok) {
+        if (check.reason === "not-found") {
+          return NextResponse.json({ error: "Not found" }, { status: 404 });
+        }
+        if (check.reason === "expired") {
+          return NextResponse.json(
+            { error: "Approval request expired", code: "EXPIRED" },
+            { status: 410 }
+          );
+        }
+        if (check.reason === "binding-mismatch") {
+          return NextResponse.json(
+            {
+              error: "Approval payload no longer matches the stored binding",
+              code: "BINDING_MISMATCH",
+            },
+            { status: 422 }
+          );
+        }
+        // already-resolved
+        return NextResponse.json(
+          { error: "Already resolved", code: "ALREADY_RESOLVED" },
+          { status: 409 }
+        );
+      }
+
+      const row = check.row;
+      const owner = await ownerCheck(row.subOrgId, userId);
+      if (owner === "not-found") {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      if (check.reason === "expired") {
+      if (owner === "forbidden") {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      const resolved = await resolveApprovalRequest(id, userId, "rejected");
+      if (!resolved) {
         return NextResponse.json(
-          { error: "Approval request expired", code: "EXPIRED" },
-          { status: 410 }
+          { error: "Already resolved", code: "ALREADY_RESOLVED" },
+          { status: 409 }
         );
       }
-      if (check.reason === "binding-mismatch") {
-        return NextResponse.json(
-          {
-            error: "Approval payload no longer matches the stored binding",
-            code: "BINDING_MISMATCH",
-          },
-          { status: 422 }
-        );
-      }
-      // already-resolved
-      return NextResponse.json(
-        { error: "Already resolved", code: "ALREADY_RESOLVED" },
-        { status: 409 }
+      return NextResponse.json({ ok: true, status: "rejected" });
+    } catch (error) {
+      logSystemError(
+        ErrorCategory.DATABASE,
+        "[Agentic] /reject failed",
+        error,
+        {
+          endpoint: `/api/agentic-wallet/${id}/reject`,
+          userId,
+        }
       );
+      return NextResponse.json({ error: "Reject failed" }, { status: 500 });
     }
-
-    const row = check.row;
-    const owner = await ownerCheck(row.subOrgId, userId);
-    if (owner === "not-found") {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-    if (owner === "forbidden") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    const resolved = await resolveApprovalRequest(id, userId, "rejected");
-    if (!resolved) {
-      return NextResponse.json(
-        { error: "Already resolved", code: "ALREADY_RESOLVED" },
-        { status: 409 }
-      );
-    }
-    return NextResponse.json({ ok: true, status: "rejected" });
-  } catch (error) {
-    logSystemError(
-      ErrorCategory.DATABASE,
-      "[Agentic] /reject failed",
-      error,
-      {
-        endpoint: `/api/agentic-wallet/${id}/reject`,
-        userId,
-      }
-    );
-    return NextResponse.json({ error: "Reject failed" }, { status: 500 });
   }
-}
+);

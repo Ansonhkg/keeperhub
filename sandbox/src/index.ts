@@ -1,7 +1,7 @@
 import {
+  createServer,
   type IncomingMessage,
   type ServerResponse,
-  createServer,
 } from "node:http";
 import {
   deserialize as v8Deserialize,
@@ -122,7 +122,6 @@ function decodeRunRequest(raw: Buffer): RunRequest | null {
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: a single dispatcher handling body-size cap, concurrency gate, cancellation, and error mapping
 async function handlePostRun(
   req: IncomingMessage,
   res: ServerResponse
@@ -194,15 +193,14 @@ async function handlePostRun(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (message === "body too large") {
-      if (!res.headersSent && !res.destroyed) {
+      if (!(res.headersSent || res.destroyed)) {
         res.writeHead(413);
         res.end("body too large");
       }
       return;
     }
-    // biome-ignore lint/suspicious/noConsole: sandbox runtime emits stderr for fatal paths so platform logs surface them
     console.error(`[Sandbox] /run failed: ${message}`);
-    if (!res.headersSent && !res.destroyed) {
+    if (!(res.headersSent || res.destroyed)) {
       res.writeHead(500);
       res.end("sandbox internal error");
     }
@@ -242,7 +240,6 @@ async function main(): Promise<void> {
   );
 
   process.on("uncaughtException", (err: Error) => {
-    // biome-ignore lint/suspicious/noConsole: fatal path; must surface to pod stderr before exit
     console.error(
       `[Fatal] uncaughtException: ${err.message}\n${err.stack ?? ""}`
     );
@@ -251,13 +248,11 @@ async function main(): Promise<void> {
 
   process.on("unhandledRejection", (reason: unknown) => {
     const message = reason instanceof Error ? reason.message : String(reason);
-    // biome-ignore lint/suspicious/noConsole: fatal path; must surface to pod stderr before exit
     console.error(`[Fatal] unhandledRejection: ${message}`);
     process.exit(1);
   });
 
   const shutdown = async (signal: string): Promise<void> => {
-    // biome-ignore lint/suspicious/noConsole: operator needs to see shutdown signals in pod logs
     console.log(`[Shutdown] received ${signal}`);
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
@@ -279,7 +274,6 @@ async function main(): Promise<void> {
       resolve();
     });
   });
-  // biome-ignore lint/suspicious/noConsole: startup banner for operator visibility
   console.log(`[Sandbox] listening on :${SANDBOX_PORT}`);
 }
 

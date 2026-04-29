@@ -150,7 +150,10 @@ describe("applyBaselinePolicies (HI-04)", () => {
       async (_input: PolicyCreateInput): Promise<PolicyCreateResult> => {
         counter += 1;
         return {
-          activity: { id: `act_${counter}`, status: "ACTIVITY_STATUS_COMPLETED" },
+          activity: {
+            id: `act_${counter}`,
+            status: "ACTIVITY_STATUS_COMPLETED",
+          },
           policyId: `policy_${counter}`,
         };
       }
@@ -253,7 +256,10 @@ describe("applyBaselinePolicies (HI-04)", () => {
       async (_input: PolicyCreateInput): Promise<PolicyCreateResult> => {
         counter += 1;
         return {
-          activity: { id: `act_${counter}`, status: "ACTIVITY_STATUS_COMPLETED" },
+          activity: {
+            id: `act_${counter}`,
+            status: "ACTIVITY_STATUS_COMPLETED",
+          },
           policyId: `policy_${counter}`,
         };
       }

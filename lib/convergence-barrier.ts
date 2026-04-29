@@ -109,7 +109,6 @@ export function getReadyDownstreamIds(
  * Returns convergence node IDs that became fully unblocked (caller handles
  * execution).
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: BFS with convergence detection requires nested branching
 export function propagateConvergenceSkips(
   skippedNodeIds: string[],
   edgesBySource: Map<string, string[]>,

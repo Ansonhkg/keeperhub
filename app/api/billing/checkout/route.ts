@@ -15,6 +15,7 @@ import { requireOrgOwner } from "@/lib/billing/require-org-owner";
 import { db } from "@/lib/db";
 import { organizationSubscriptions } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 type CheckoutRequestBody = {
   plan?: string;
@@ -150,83 +151,86 @@ async function handleExistingSubscription(
   return NextResponse.json({ updated: true });
 }
 
-export async function POST(request: Request): Promise<NextResponse> {
-  if (!isBillingEnabled()) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  try {
-    const result = await validateCheckoutRequest(request);
-    if (result instanceof NextResponse) {
-      return result;
+export const POST = withTracedApiHandler(
+  "POST /api/billing/checkout",
+  async function POST(request: Request): Promise<NextResponse> {
+    if (!isBillingEnabled()) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const { activeOrgId, email, userId, priceId } = result;
-    const provider = getBillingProvider();
-    const sub = await getOrgSubscription(activeOrgId);
-    const existingSubId = sub?.providerSubscriptionId ?? null;
+    try {
+      const result = await validateCheckoutRequest(request);
+      if (result instanceof NextResponse) {
+        return result;
+      }
 
-    if (
-      sub &&
-      existingSubId &&
-      sub.status !== "canceled" &&
-      sub.plan !== "free"
-    ) {
-      if (sub.providerPriceId === priceId) {
-        return NextResponse.json(
-          { error: "You are already on this plan" },
-          { status: 400 }
+      const { activeOrgId, email, userId, priceId } = result;
+      const provider = getBillingProvider();
+      const sub = await getOrgSubscription(activeOrgId);
+      const existingSubId = sub?.providerSubscriptionId ?? null;
+
+      if (
+        sub &&
+        existingSubId &&
+        sub.status !== "canceled" &&
+        sub.plan !== "free"
+      ) {
+        if (sub.providerPriceId === priceId) {
+          return NextResponse.json(
+            { error: "You are already on this plan" },
+            { status: 400 }
+          );
+        }
+
+        return await handleExistingSubscription(
+          provider,
+          existingSubId,
+          priceId,
+          activeOrgId,
+          sub
         );
       }
 
-      return await handleExistingSubscription(
+      const providerCustomerId = await ensureProviderCustomer(
         provider,
-        existingSubId,
-        priceId,
         activeOrgId,
+        email,
+        userId,
         sub
       );
-    }
 
-    const providerCustomerId = await ensureProviderCustomer(
-      provider,
-      activeOrgId,
-      email,
-      userId,
-      sub
-    );
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        process.env.BETTER_AUTH_URL ??
+        "http://localhost:3000";
 
-    const appUrl =
-      process.env.NEXT_PUBLIC_APP_URL ??
-      process.env.BETTER_AUTH_URL ??
-      "http://localhost:3000";
+      const { url } = await provider.createCheckoutSession({
+        customerId: providerCustomerId,
+        priceId,
+        organizationId: activeOrgId,
+        successUrl: `${appUrl}/billing?checkout=success`,
+        cancelUrl: `${appUrl}/billing?checkout=canceled`,
+      });
 
-    const { url } = await provider.createCheckoutSession({
-      customerId: providerCustomerId,
-      priceId,
-      organizationId: activeOrgId,
-      successUrl: `${appUrl}/billing?checkout=success`,
-      cancelUrl: `${appUrl}/billing?checkout=canceled`,
-    });
+      return NextResponse.json({ url });
+    } catch (error) {
+      if (isStripeCardError(error)) {
+        return NextResponse.json(
+          { error: "Payment failed. Please update your payment method." },
+          { status: 402 }
+        );
+      }
 
-    return NextResponse.json({ url });
-  } catch (error) {
-    if (isStripeCardError(error)) {
+      logSystemError(
+        ErrorCategory.EXTERNAL_SERVICE,
+        "[Billing] Checkout error",
+        error,
+        { endpoint: "/api/billing/checkout", operation: "post" }
+      );
       return NextResponse.json(
-        { error: "Payment failed. Please update your payment method." },
-        { status: 402 }
+        { error: "Failed to create checkout session" },
+        { status: 500 }
       );
     }
-
-    logSystemError(
-      ErrorCategory.EXTERNAL_SERVICE,
-      "[Billing] Checkout error",
-      error,
-      { endpoint: "/api/billing/checkout", operation: "post" }
-    );
-    return NextResponse.json(
-      { error: "Failed to create checkout session" },
-      { status: 500 }
-    );
   }
-}
+);

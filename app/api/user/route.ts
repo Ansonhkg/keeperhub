@@ -5,119 +5,127 @@ import { db } from "@/lib/db";
 import { accounts, users } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { getUserWallet } from "@/lib/para/wallet-helpers";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
-export async function GET(request: Request) {
-  try {
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    });
-
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const userData = await db.query.users.findFirst({
-      where: eq(users.id, session.user.id),
-      columns: {
-        id: true,
-        name: true,
-        email: true,
-        image: true,
-        isAnonymous: true,
-      },
-    });
-
-    if (!userData) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    // Get the user's account to determine auth provider
-    const userAccount = await db.query.accounts.findFirst({
-      where: eq(accounts.userId, session.user.id),
-      columns: {
-        providerId: true,
-      },
-    });
-
-    // Get the user's wallet address (if exists)
-    let walletAddress: string | null = null;
+export const GET = withTracedApiHandler(
+  "GET /api/user",
+  async function GET(request: Request) {
     try {
-      const wallet = await getUserWallet(session.user.id);
-      walletAddress = wallet.walletAddress;
-    } catch (_error) {
-      // User doesn't have a wallet yet, that's ok
-      walletAddress = null;
-    }
+      const session = await auth.api.getSession({
+        headers: request.headers,
+      });
 
-    return NextResponse.json({
-      ...userData,
-      providerId: userAccount?.providerId ?? null,
-      walletAddress,
-    });
-  } catch (error) {
-    logSystemError(ErrorCategory.DATABASE, "Failed to get user", error, {
-      endpoint: "/api/user",
-      operation: "get",
-    });
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to get user",
-      },
-      { status: 500 }
-    );
-  }
-}
+      if (!session?.user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
 
-export async function PATCH(request: Request) {
-  try {
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    });
+      const userData = await db.query.users.findFirst({
+        where: eq(users.id, session.user.id),
+        columns: {
+          id: true,
+          name: true,
+          email: true,
+          image: true,
+          isAnonymous: true,
+        },
+      });
 
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+      if (!userData) {
+        return NextResponse.json({ error: "User not found" }, { status: 404 });
+      }
 
-    // Check if user is an OAuth user (can't update profile)
-    const userAccount = await db.query.accounts.findFirst({
-      where: eq(accounts.userId, session.user.id),
-      columns: {
-        providerId: true,
-      },
-    });
+      // Get the user's account to determine auth provider
+      const userAccount = await db.query.accounts.findFirst({
+        where: eq(accounts.userId, session.user.id),
+        columns: {
+          providerId: true,
+        },
+      });
 
-    // Block updates for OAuth users (vercel, github, google, etc.)
-    const oauthProviders = ["vercel", "github", "google"];
-    if (userAccount && oauthProviders.includes(userAccount.providerId)) {
+      // Get the user's wallet address (if exists)
+      let walletAddress: string | null = null;
+      try {
+        const wallet = await getUserWallet(session.user.id);
+        walletAddress = wallet.walletAddress;
+      } catch (_error) {
+        // User doesn't have a wallet yet, that's ok
+        walletAddress = null;
+      }
+
+      return NextResponse.json({
+        ...userData,
+        providerId: userAccount?.providerId ?? null,
+        walletAddress,
+      });
+    } catch (error) {
+      logSystemError(ErrorCategory.DATABASE, "Failed to get user", error, {
+        endpoint: "/api/user",
+        operation: "get",
+      });
       return NextResponse.json(
-        { error: "Cannot update profile for OAuth users" },
-        { status: 403 }
+        {
+          error: error instanceof Error ? error.message : "Failed to get user",
+        },
+        { status: 500 }
       );
     }
-
-    const body = await request.json();
-    const updates: { name?: string; email?: string } = {};
-
-    if (body.name !== undefined) {
-      updates.name = body.name;
-    }
-    if (body.email !== undefined) {
-      updates.email = body.email;
-    }
-
-    await db.update(users).set(updates).where(eq(users.id, session.user.id));
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    logSystemError(ErrorCategory.DATABASE, "Failed to update user", error, {
-      endpoint: "/api/user",
-      operation: "update",
-    });
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to update user",
-      },
-      { status: 500 }
-    );
   }
-}
+);
+
+export const PATCH = withTracedApiHandler(
+  "PATCH /api/user",
+  async function PATCH(request: Request) {
+    try {
+      const session = await auth.api.getSession({
+        headers: request.headers,
+      });
+
+      if (!session?.user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      // Check if user is an OAuth user (can't update profile)
+      const userAccount = await db.query.accounts.findFirst({
+        where: eq(accounts.userId, session.user.id),
+        columns: {
+          providerId: true,
+        },
+      });
+
+      // Block updates for OAuth users (vercel, github, google, etc.)
+      const oauthProviders = ["vercel", "github", "google"];
+      if (userAccount && oauthProviders.includes(userAccount.providerId)) {
+        return NextResponse.json(
+          { error: "Cannot update profile for OAuth users" },
+          { status: 403 }
+        );
+      }
+
+      const body = await request.json();
+      const updates: { name?: string; email?: string } = {};
+
+      if (body.name !== undefined) {
+        updates.name = body.name;
+      }
+      if (body.email !== undefined) {
+        updates.email = body.email;
+      }
+
+      await db.update(users).set(updates).where(eq(users.id, session.user.id));
+
+      return NextResponse.json({ success: true });
+    } catch (error) {
+      logSystemError(ErrorCategory.DATABASE, "Failed to update user", error, {
+        endpoint: "/api/user",
+        operation: "update",
+      });
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : "Failed to update user",
+        },
+        { status: 500 }
+      );
+    }
+  }
+);

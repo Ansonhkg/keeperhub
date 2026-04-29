@@ -337,7 +337,6 @@ const getViewDescription = (view: ModalView, email?: string) => {
   }
 };
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Auth dialog handles multiple views and flows
 export const AuthDialog = ({ children }: AuthDialogProps) => {
   // Use lazy initialization to check for pending verification on mount/remount
   const [open, setOpen] = useState(() => pendingVerifyEmail !== null);
@@ -443,7 +442,6 @@ export const AuthDialog = ({ children }: AuthDialogProps) => {
     }
   };
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex auth flow with multiple verification paths
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -521,7 +519,6 @@ export const AuthDialog = ({ children }: AuthDialogProps) => {
     }
   };
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Handles signup with unverified user detection
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");

@@ -162,7 +162,6 @@ async function stepHandler(
  * Check Allowance Step
  * Reads ERC20 allowance(owner, spender) to check the current spending approval
  */
-// biome-ignore lint/suspicious/useAwait: "use step" directive requires async
 export async function checkAllowanceStep(
   input: CheckAllowanceInput
 ): Promise<CheckAllowanceResult> {

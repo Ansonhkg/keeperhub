@@ -227,7 +227,6 @@ function printTable(headers: string[], rows: string[][], colWidths: number[]) {
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Report generation has many conditional branches for formatting
 function generateReport(isJsonOutput: boolean, outputFilePath: string | null) {
   if (!isJsonOutput) {
     console.log(

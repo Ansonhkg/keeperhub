@@ -73,7 +73,6 @@ describe("executeWithRetry", () => {
 
     it("returns timeout when all attempts time out", async () => {
       const result = await executeWithRetry<TransactionResult>(
-        // biome-ignore lint/suspicious/noEmptyBlockStatements: intentionally never-resolving promise for timeout test
         () => new Promise(() => {}),
         { maxRetries: 1, timeoutMs: 10 },
         transactionRetryOptions
@@ -150,7 +149,6 @@ describe("executeWithRetry", () => {
 
     it("returns timeout when step hangs", async () => {
       const result = await executeWithRetry<unknown>(
-        // biome-ignore lint/suspicious/noEmptyBlockStatements: intentionally never-resolving promise for timeout test
         () => new Promise(() => {}),
         { maxRetries: 0, timeoutMs: 10 },
         genericRetryOptions

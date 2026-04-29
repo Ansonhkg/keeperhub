@@ -37,6 +37,7 @@ import { verifyHmacRequest } from "@/lib/agentic-wallet/hmac";
 import { db } from "@/lib/db";
 import { agenticWalletCredits } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 export const dynamic = "force-dynamic";
 
@@ -56,38 +57,66 @@ function mapAuthFailureToCode(
   return "HMAC_INVALID";
 }
 
-export async function GET(request: Request): Promise<Response> {
-  // HMAC over an empty body for GET — client hmac.ts passes body === "" on
-  // GET requests, so sha256_hex("") is the canonical digest here.
-  const auth = await verifyHmacRequest(request, "");
-  if (!auth.ok) {
-    const code = mapAuthFailureToCode(auth.status, auth.error);
-    return Response.json({ error: auth.error, code }, { status: auth.status });
-  }
+export const GET = withTracedApiHandler(
+  "GET /api/agentic-wallet/credit",
+  async function GET(request: Request): Promise<Response> {
+    // HMAC over an empty body for GET — client hmac.ts passes body === "" on
+    // GET requests, so sha256_hex("") is the canonical digest here.
+    const auth = await verifyHmacRequest(request, "");
+    if (!auth.ok) {
+      const code = mapAuthFailureToCode(auth.status, auth.error);
+      return Response.json(
+        { error: auth.error, code },
+        { status: auth.status }
+      );
+    }
 
-  try {
-    // COALESCE(SUM(amount_usdc_cents), 0) guarantees a numeric result when
-    // the sub-org exists in agentic_wallets (HMAC-secret lookup succeeded)
-    // but has no credit ledger rows. The result arrives as a string from
-    // Postgres numeric-to-text casting; parseInt normalises it.
-    const result = await db
-      .select({
-        totalCents: sql<string>`COALESCE(SUM(${agenticWalletCredits.amountUsdcCents}), 0)::text`,
-      })
-      .from(agenticWalletCredits)
-      .where(eq(agenticWalletCredits.subOrgId, auth.subOrgId));
+    try {
+      // COALESCE(SUM(amount_usdc_cents), 0) guarantees a numeric result when
+      // the sub-org exists in agentic_wallets (HMAC-secret lookup succeeded)
+      // but has no credit ledger rows. The result arrives as a string from
+      // Postgres numeric-to-text casting; parseInt normalises it.
+      const result = await db
+        .select({
+          totalCents: sql<string>`COALESCE(SUM(${agenticWalletCredits.amountUsdcCents}), 0)::text`,
+        })
+        .from(agenticWalletCredits)
+        .where(eq(agenticWalletCredits.subOrgId, auth.subOrgId));
 
-    const rawCents = result[0]?.totalCents ?? "0";
-    const totalCents = Number.parseInt(rawCents, 10);
-    // WR-02: a SUM over numeric-to-text that exceeds 2^53 - 1 collapses to
-    // NaN after parseInt; refuse to emit a misleading "NaN" amount to the
-    // caller. The error envelope is opaque (INTERNAL) per the existing
-    // /credit failure shape.
-    if (!Number.isFinite(totalCents)) {
+      const rawCents = result[0]?.totalCents ?? "0";
+      const totalCents = Number.parseInt(rawCents, 10);
+      // WR-02: a SUM over numeric-to-text that exceeds 2^53 - 1 collapses to
+      // NaN after parseInt; refuse to emit a misleading "NaN" amount to the
+      // caller. The error envelope is opaque (INTERNAL) per the existing
+      // /credit failure shape.
+      if (!Number.isFinite(totalCents)) {
+        logSystemError(
+          ErrorCategory.DATABASE,
+          "[Agentic] /credit sum not finite",
+          null,
+          {
+            endpoint: "/api/agentic-wallet/credit",
+            operation: "read",
+            subOrgId: auth.subOrgId,
+          }
+        );
+        return Response.json(
+          { error: "Internal error", code: "INTERNAL" },
+          { status: 500 }
+        );
+      }
+      const amountUsd = (totalCents / 100).toFixed(2);
+
+      return Response.json({
+        amount: amountUsd,
+        currency: "USD",
+        subOrgId: auth.subOrgId,
+      });
+    } catch (error) {
       logSystemError(
         ErrorCategory.DATABASE,
-        "[Agentic] /credit sum not finite",
-        null,
+        "[Agentic] /credit read failed",
+        error,
         {
           endpoint: "/api/agentic-wallet/credit",
           operation: "read",
@@ -99,27 +128,5 @@ export async function GET(request: Request): Promise<Response> {
         { status: 500 }
       );
     }
-    const amountUsd = (totalCents / 100).toFixed(2);
-
-    return Response.json({
-      amount: amountUsd,
-      currency: "USD",
-      subOrgId: auth.subOrgId,
-    });
-  } catch (error) {
-    logSystemError(
-      ErrorCategory.DATABASE,
-      "[Agentic] /credit read failed",
-      error,
-      {
-        endpoint: "/api/agentic-wallet/credit",
-        operation: "read",
-        subOrgId: auth.subOrgId,
-      }
-    );
-    return Response.json(
-      { error: "Internal error", code: "INTERNAL" },
-      { status: 500 }
-    );
   }
-}
+);

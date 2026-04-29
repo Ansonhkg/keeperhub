@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { enterApiExecuteErrorContext } from "@/lib/db/org-helpers";
 import { integrations } from "@/lib/db/schema";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import { getErrorMessage } from "@/lib/utils";
 import type { ResolvedAction } from "../_lib/action-resolver";
 import { resolveAction } from "../_lib/action-resolver";
@@ -364,89 +365,95 @@ async function executeNode(
   }
 }
 
-export async function POST(request: Request): Promise<NextResponse> {
-  const apiKeyCtx = await validateApiKey(request);
-  if (!apiKeyCtx) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const POST = withTracedApiHandler(
+  "POST /api/execute/node",
+  async function POST(request: Request): Promise<NextResponse> {
+    const apiKeyCtx = await validateApiKey(request);
+    if (!apiKeyCtx) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-  // Enter ALS error context so plugin step errors carry org labels
-  await enterApiExecuteErrorContext(apiKeyCtx.organizationId);
+    // Enter ALS error context so plugin step errors carry org labels
+    await enterApiExecuteErrorContext(apiKeyCtx.organizationId);
 
-  const rateLimit = checkRateLimit(apiKeyCtx.apiKeyId);
-  if (!rateLimit.allowed) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded" },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfter) } }
-    );
-  }
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const validation = validateRequest(body);
-  if (!validation.valid) {
-    return NextResponse.json({ error: validation.error }, { status: 400 });
-  }
-
-  const { actionType, integrationId, network } = validation.data;
-
-  const resolved = resolveAction(actionType);
-  if (!resolved) {
-    return NextResponse.json(
-      { error: `Unknown action type: ${actionType}` },
-      { status: 400 }
-    );
-  }
-
-  if (integrationId) {
-    const owned = await verifyIntegrationOwnership(
-      integrationId,
-      apiKeyCtx.organizationId
-    );
-    if (!owned) {
+    const rateLimit = checkRateLimit(apiKeyCtx.apiKeyId);
+    if (!rateLimit.allowed) {
       return NextResponse.json(
+        { error: "Rate limit exceeded" },
         {
-          error:
-            "Integration not found or does not belong to this organization",
-        },
-        { status: 403 }
+          status: 429,
+          headers: { "Retry-After": String(rateLimit.retryAfter) },
+        }
       );
     }
-  }
 
-  if (network) {
-    const walletError = await requireWallet(apiKeyCtx.organizationId);
-    if (walletError) {
-      return walletError;
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const redactedInput = redactInput({
-      actionType: validation.data.actionType,
-      ...validation.data.config,
-    });
-    const reserve = await checkAndReserveExecution({
-      organizationId: apiKeyCtx.organizationId,
-      apiKeyId: apiKeyCtx.apiKeyId,
-      type: resolved.actionType,
-      network,
-      input: redactedInput,
-    });
-    if (!reserve.allowed) {
-      return NextResponse.json({ error: reserve.reason }, { status: 403 });
+    const validation = validateRequest(body);
+    if (!validation.valid) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    return await executeNode(
-      validation.data,
-      resolved,
-      apiKeyCtx,
-      reserve.executionId
-    );
-  }
+    const { actionType, integrationId, network } = validation.data;
 
-  return await executeNode(validation.data, resolved, apiKeyCtx);
-}
+    const resolved = resolveAction(actionType);
+    if (!resolved) {
+      return NextResponse.json(
+        { error: `Unknown action type: ${actionType}` },
+        { status: 400 }
+      );
+    }
+
+    if (integrationId) {
+      const owned = await verifyIntegrationOwnership(
+        integrationId,
+        apiKeyCtx.organizationId
+      );
+      if (!owned) {
+        return NextResponse.json(
+          {
+            error:
+              "Integration not found or does not belong to this organization",
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    if (network) {
+      const walletError = await requireWallet(apiKeyCtx.organizationId);
+      if (walletError) {
+        return walletError;
+      }
+
+      const redactedInput = redactInput({
+        actionType: validation.data.actionType,
+        ...validation.data.config,
+      });
+      const reserve = await checkAndReserveExecution({
+        organizationId: apiKeyCtx.organizationId,
+        apiKeyId: apiKeyCtx.apiKeyId,
+        type: resolved.actionType,
+        network,
+        input: redactedInput,
+      });
+      if (!reserve.allowed) {
+        return NextResponse.json({ error: reserve.reason }, { status: 403 });
+      }
+
+      return await executeNode(
+        validation.data,
+        resolved,
+        apiKeyCtx,
+        reserve.executionId
+      );
+    }
+
+    return await executeNode(validation.data, resolved, apiKeyCtx);
+  }
+);

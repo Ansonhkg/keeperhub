@@ -221,9 +221,11 @@ describe("logWorkflowCompleteDb", () => {
     // Patch buildUpdate behavior per-call: first UPDATE (logs) throws,
     // second UPDATE (executions) succeeds.
     const { db } = await import("@/lib/db");
-    (db.update as unknown as {
-      mockImplementation: (fn: (t: unknown) => UpdateChain) => void;
-    }).mockImplementation((target: unknown) => ({
+    (
+      db.update as unknown as {
+        mockImplementation: (fn: (t: unknown) => UpdateChain) => void;
+      }
+    ).mockImplementation((target: unknown) => ({
       set: (values: Record<string, unknown>): SetChain => {
         updateCalls.push({ target, set: values });
         const shouldThrow =

@@ -3,12 +3,13 @@ import { isAiGatewayManagedKeysEnabled } from "@/lib/ai-gateway/config";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { accounts, integrations } from "@/lib/db/schema";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 /**
  * GET /api/ai-gateway/status
  * Returns user's AI Gateway status including whether they can use managed keys
  */
-export async function GET(request: Request) {
+export const GET = withTracedApiHandler("GET /api/ai-gateway/status", async function GET(request: Request) {
   const enabled = isAiGatewayManagedKeysEnabled();
 
   // If feature is not enabled, return minimal response
@@ -57,4 +58,4 @@ export async function GET(request: Request) {
     hasManagedKey: !!managedIntegration,
     managedIntegrationId: managedIntegration?.id,
   });
-}
+});

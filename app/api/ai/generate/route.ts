@@ -8,6 +8,8 @@ import { createTimer, getMetricsCollector } from "@/lib/metrics";
 import { MetricNames } from "@/lib/metrics/types";
 import { getDualAuthContext } from "@/lib/middleware/auth-helpers";
 import { getOpenAICompatibleClientOptions } from "@/lib/openai-compatible";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
+import { withServerTraceSpan } from "@/lib/trace/server-span";
 import { generateAIActionPrompts } from "@/plugins/registry";
 
 // Simple type for operations
@@ -314,72 +316,74 @@ function getAIModel(
   return { success: true, model: provider(modelString) };
 }
 
-export async function POST(request: Request) {
-  const timer = createTimer();
-  const metrics = getMetricsCollector();
+export const POST = withTracedApiHandler(
+  "POST /api/ai/generate",
+  async function POST(request: Request) {
+    const timer = createTimer();
+    const metrics = getMetricsCollector();
 
-  try {
-    const authContext = await getDualAuthContext(request);
-    if ("error" in authContext) {
-      metrics.recordLatency(MetricNames.AI_GENERATION_DURATION, timer(), {
-        status: "failure",
-      });
-      return NextResponse.json(
-        { error: authContext.error },
-        { status: authContext.status }
+    try {
+      const authContext = await getDualAuthContext(request);
+      if ("error" in authContext) {
+        metrics.recordLatency(MetricNames.AI_GENERATION_DURATION, timer(), {
+          status: "failure",
+        });
+        return NextResponse.json(
+          { error: authContext.error },
+          { status: authContext.status }
+        );
+      }
+
+      const body = await request.json();
+      const { prompt, existingWorkflow } = body;
+
+      if (!prompt) {
+        metrics.recordLatency(MetricNames.AI_GENERATION_DURATION, timer(), {
+          status: "failure",
+        });
+        return NextResponse.json(
+          { error: "Prompt is required" },
+          { status: 400 }
+        );
+      }
+
+      // Determine which AI provider and model to use
+      const modelString = process.env.AI_MODEL || "gpt-4o";
+      const modelResult = getAIModel(
+        modelString,
+        process.env.AI_GATEWAY_API_KEY,
+        process.env.OPENAI_API_KEY,
+        process.env.ANTHROPIC_API_KEY
       );
-    }
 
-    const body = await request.json();
-    const { prompt, existingWorkflow } = body;
+      if (!modelResult.success) {
+        metrics.recordLatency(MetricNames.AI_GENERATION_DURATION, timer(), {
+          status: "failure",
+        });
+        return NextResponse.json({ error: modelResult.error }, { status: 500 });
+      }
 
-    if (!prompt) {
-      metrics.recordLatency(MetricNames.AI_GENERATION_DURATION, timer(), {
-        status: "failure",
-      });
-      return NextResponse.json(
-        { error: "Prompt is required" },
-        { status: 400 }
-      );
-    }
+      const model = modelResult.model;
 
-    // Determine which AI provider and model to use
-    const modelString = process.env.AI_MODEL || "gpt-4o";
-    const modelResult = getAIModel(
-      modelString,
-      process.env.AI_GATEWAY_API_KEY,
-      process.env.OPENAI_API_KEY,
-      process.env.ANTHROPIC_API_KEY
-    );
+      // Build the user prompt
+      let userPrompt = prompt;
+      if (existingWorkflow) {
+        // Identify nodes and their labels for context
+        const nodesList = (existingWorkflow.nodes || [])
+          .map(
+            (n: { id: string; data?: { label?: string } }) =>
+              `- ${n.id} (${n.data?.label || "Unlabeled"})`
+          )
+          .join("\n");
 
-    if (!modelResult.success) {
-      metrics.recordLatency(MetricNames.AI_GENERATION_DURATION, timer(), {
-        status: "failure",
-      });
-      return NextResponse.json({ error: modelResult.error }, { status: 500 });
-    }
+        const edgesList = (existingWorkflow.edges || [])
+          .map(
+            (e: { id: string; source: string; target: string }) =>
+              `- ${e.id}: ${e.source} -> ${e.target}`
+          )
+          .join("\n");
 
-    const model = modelResult.model;
-
-    // Build the user prompt
-    let userPrompt = prompt;
-    if (existingWorkflow) {
-      // Identify nodes and their labels for context
-      const nodesList = (existingWorkflow.nodes || [])
-        .map(
-          (n: { id: string; data?: { label?: string } }) =>
-            `- ${n.id} (${n.data?.label || "Unlabeled"})`
-        )
-        .join("\n");
-
-      const edgesList = (existingWorkflow.edges || [])
-        .map(
-          (e: { id: string; source: string; target: string }) =>
-            `- ${e.id}: ${e.source} -> ${e.target}`
-        )
-        .join("\n");
-
-      userPrompt = `I have an existing workflow. I want you to make ONLY the changes I request.
+        userPrompt = `I have an existing workflow. I want you to make ONLY the changes I request.
 
 Current workflow nodes:
 ${nodesList}
@@ -406,67 +410,85 @@ IMPORTANT: Output ONLY the operations needed to make the requested changes.
 
 Example: If user says "connect node A to node B", output:
 {"op": "addEdge", "edge": {"id": "e-new", "source": "A", "target": "B", "type": "default"}}`;
+      }
+
+      const result = await withServerTraceSpan(
+        {
+          attributes: {
+            mode: existingWorkflow ? "edit" : "create",
+            modelId: modelString,
+            promptLength: userPrompt.length,
+          },
+          kind: "ai",
+          label: `AI generate workflow (${modelString})`,
+          step: "ai.generate-workflow",
+        },
+        () =>
+          streamText({
+            model,
+            prompt: userPrompt,
+            system: getSystemPrompt(),
+          })
+      );
+
+      // Create a streaming response
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            await processOperationStream(
+              result.textStream,
+              encoder,
+              controller
+            );
+            metrics.recordLatency(MetricNames.AI_GENERATION_DURATION, timer(), {
+              status: "success",
+            });
+            controller.close();
+          } catch (error) {
+            metrics.recordLatency(MetricNames.AI_GENERATION_DURATION, timer(), {
+              status: "failure",
+            });
+            controller.enqueue(
+              encodeMessage(encoder, {
+                type: "error",
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "Failed to generate workflow",
+              })
+            );
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    } catch (error) {
+      logSystemError(
+        ErrorCategory.INFRASTRUCTURE,
+        "Failed to generate workflow",
+        error,
+        { endpoint: "/api/ai/generate", operation: "generateWorkflow" }
+      );
+      metrics.recordLatency(MetricNames.AI_GENERATION_DURATION, timer(), {
+        status: "failure",
+      });
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to generate workflow",
+        },
+        { status: 500 }
+      );
     }
-
-    const result = streamText({
-      model,
-      system: getSystemPrompt(),
-      prompt: userPrompt,
-    });
-
-    // Create a streaming response
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      async start(controller) {
-        try {
-          await processOperationStream(result.textStream, encoder, controller);
-          metrics.recordLatency(MetricNames.AI_GENERATION_DURATION, timer(), {
-            status: "success",
-          });
-          controller.close();
-        } catch (error) {
-          metrics.recordLatency(MetricNames.AI_GENERATION_DURATION, timer(), {
-            status: "failure",
-          });
-          controller.enqueue(
-            encodeMessage(encoder, {
-              type: "error",
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to generate workflow",
-            })
-          );
-          controller.close();
-        }
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "application/x-ndjson",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
-  } catch (error) {
-    logSystemError(
-      ErrorCategory.INFRASTRUCTURE,
-      "Failed to generate workflow",
-      error,
-      { endpoint: "/api/ai/generate", operation: "generateWorkflow" }
-    );
-    metrics.recordLatency(MetricNames.AI_GENERATION_DURATION, timer(), {
-      status: "failure",
-    });
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to generate workflow",
-      },
-      { status: 500 }
-    );
   }
-}
+);

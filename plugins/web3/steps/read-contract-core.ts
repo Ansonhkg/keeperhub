@@ -56,7 +56,6 @@ async function getUserIdFromExecution(
  *
  * Shared between the web3 read-contract step and the future protocol-read step.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Contract interaction requires extensive validation
 export async function readContractCore(
   input: ReadContractCoreInput
 ): Promise<ReadContractResult> {

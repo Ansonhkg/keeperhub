@@ -4,8 +4,9 @@ import { db } from "@/lib/db";
 import { workflowPublicTags, workflows } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { getOrgContext } from "@/lib/middleware/org-context";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
-export async function PUT(
+export const PUT = withTracedApiHandler("PUT /api/workflows/:workflowId/go-live", async function PUT(
   request: Request,
   context: { params: Promise<{ workflowId: string }> }
 ): Promise<NextResponse> {
@@ -109,4 +110,4 @@ export async function PUT(
       { status: 500 }
     );
   }
-}
+});

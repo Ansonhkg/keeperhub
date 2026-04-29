@@ -62,7 +62,6 @@ describe.skipIf(SKIP_INFRA_TESTS)("Schedule Pipeline E2E", () => {
           QueueName: TEST_QUEUE_NAME,
         })
       );
-      // biome-ignore lint/style/noNonNullAssertion: AWS SDK returns QueueUrl on successful creation
       testQueueUrl = createResult.QueueUrl!;
       // Normalize the URL to use localhost (LocalStack may return host.minikube.internal)
       testQueueUrl = testQueueUrl.replace(
@@ -206,7 +205,6 @@ describe.skipIf(SKIP_INFRA_TESTS)("Schedule Pipeline E2E", () => {
       expect(receiveResult.Messages).toBeDefined();
       expect(receiveResult.Messages?.length).toBeGreaterThan(0);
 
-      // biome-ignore lint/style/noNonNullAssertion: We just verified Messages is defined and has length > 0
       // biome-ignore lint/suspicious/noNonNullAssertedOptionalChain: Safe due to prior assertions
       const receivedBody = JSON.parse(receiveResult.Messages?.[0].Body!);
       expect(receivedBody.workflowId).toBe("test_wf_recv");

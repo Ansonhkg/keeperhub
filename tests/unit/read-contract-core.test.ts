@@ -65,7 +65,6 @@ vi.mock("ethers", async () => {
       JsonRpcProvider: class MockProvider {},
       Contract: class MockContract {
         constructor() {
-          // biome-ignore lint/correctness/noConstructorReturn: test mock requires returning a Proxy to intercept dynamic property access
           return new Proxy(
             {},
             {

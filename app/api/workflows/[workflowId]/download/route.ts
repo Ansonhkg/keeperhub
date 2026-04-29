@@ -7,6 +7,7 @@ import { getOrgContext } from "@/lib/middleware/org-context";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { workflows } from "@/lib/db/schema";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import { generateWorkflowModule } from "@/lib/workflow-codegen";
 import type { WorkflowEdge, WorkflowNode } from "@/lib/workflow-store";
 import { getAllEnvVars, getDependenciesForActions } from "@/plugins/registry";
@@ -94,7 +95,7 @@ function generateWorkflowFiles(workflow: {
 import { ${functionName} } from '@/workflows/${fileName}';
 import { NextResponse } from 'next/server';
 
-export async function POST(request: Request) {
+export const POST = withTracedApiHandler("POST /api/workflows/:workflowId/download", async function POST(request: Request) {
   try {
     const body = await request.json();
     
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});
 `;
 
   // Update app/page.tsx with workflow details
@@ -205,7 +206,7 @@ function sanitizeFileName(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
-export async function GET(
+export const GET = withTracedApiHandler("GET /api/workflows/:workflowId/download", async function GET(
   request: Request,
   context: { params: Promise<{ workflowId: string }> }
 ) {
@@ -283,6 +284,7 @@ export async function GET(
     // Update next.config.ts to include workflow plugin
     allFiles["next.config.ts"] = `import { withWorkflow } from 'workflow/next';
 import type { NextConfig } from 'next';
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 const nextConfig: NextConfig = {};
 
@@ -368,4 +370,4 @@ For more information, visit the [Workflow documentation](https://workflow.is).
       { status: 500 }
     );
   }
-}
+});

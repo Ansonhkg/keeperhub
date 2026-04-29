@@ -3,86 +3,93 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { workflowExecutions } from "@/lib/db/schema";
 import { authenticateInternalService } from "@/lib/internal-service-auth";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
-export async function PATCH(
-  request: Request,
-  context: { params: Promise<{ executionId: string }> }
-) {
-  const auth = authenticateInternalService(request);
-  if (!auth.authenticated) {
-    return NextResponse.json(
-      { error: auth.error || "Unauthorized" },
-      { status: 401 }
-    );
-  }
+export const PATCH = withTracedApiHandler(
+  "PATCH /api/internal/executions/:executionId",
+  async function PATCH(
+    request: Request,
+    context: { params: Promise<{ executionId: string }> }
+  ) {
+    const auth = authenticateInternalService(request);
+    if (!auth.authenticated) {
+      return NextResponse.json(
+        { error: auth.error || "Unauthorized" },
+        { status: 401 }
+      );
+    }
 
-  const { executionId } = await context.params;
-  const body = await request.json();
-  const { status, error, duration } = body;
+    const { executionId } = await context.params;
+    const body = await request.json();
+    const { status, error, duration } = body;
 
-  type ExecutionStatus = "running" | "success" | "error";
-  const validStatuses: ExecutionStatus[] = ["running", "success", "error"];
+    type ExecutionStatus = "running" | "success" | "error";
+    const validStatuses: ExecutionStatus[] = ["running", "success", "error"];
 
-  // Validate status
-  if (!(status && validStatuses.includes(status))) {
-    return NextResponse.json(
-      { error: "status must be 'running', 'success', or 'error'" },
-      { status: 400 }
-    );
-  }
+    // Validate status
+    if (!(status && validStatuses.includes(status))) {
+      return NextResponse.json(
+        { error: "status must be 'running', 'success', or 'error'" },
+        { status: 400 }
+      );
+    }
 
-  const typedStatus = status as ExecutionStatus;
+    const typedStatus = status as ExecutionStatus;
 
-  // Check execution exists and is not already cancelled
-  const existing = await db.query.workflowExecutions.findFirst({
-    where: eq(workflowExecutions.id, executionId),
-    columns: { id: true, status: true },
-  });
+    // Check execution exists and is not already cancelled
+    const existing = await db.query.workflowExecutions.findFirst({
+      where: eq(workflowExecutions.id, executionId),
+      columns: { id: true, status: true },
+    });
 
-  if (!existing) {
-    return NextResponse.json({ error: "Execution not found" }, { status: 404 });
-  }
+    if (!existing) {
+      return NextResponse.json(
+        { error: "Execution not found" },
+        { status: 404 }
+      );
+    }
 
-  // Don't overwrite cancelled status (user already stopped this execution)
-  if (existing.status === "cancelled") {
+    // Don't overwrite cancelled status (user already stopped this execution)
+    if (existing.status === "cancelled") {
+      return NextResponse.json({ success: true });
+    }
+
+    // Build update payload
+    const isTerminal = status === "success" || status === "error";
+    const updateData: {
+      status: ExecutionStatus;
+      error?: string | null;
+      completedAt?: Date;
+      duration?: string;
+      currentNodeId?: null;
+      currentNodeName?: null;
+    } = { status: typedStatus };
+
+    if (status === "error") {
+      updateData.error = error || "Unknown error";
+      updateData.completedAt = new Date();
+    } else if (status === "success") {
+      updateData.completedAt = new Date();
+    }
+
+    if (isTerminal) {
+      updateData.currentNodeId = null;
+      updateData.currentNodeName = null;
+      if (typeof duration === "string") {
+        updateData.duration = duration;
+      }
+    }
+
+    await db
+      .update(workflowExecutions)
+      .set(updateData)
+      .where(
+        and(
+          eq(workflowExecutions.id, executionId),
+          ne(workflowExecutions.status, "cancelled")
+        )
+      );
+
     return NextResponse.json({ success: true });
   }
-
-  // Build update payload
-  const isTerminal = status === "success" || status === "error";
-  const updateData: {
-    status: ExecutionStatus;
-    error?: string | null;
-    completedAt?: Date;
-    duration?: string;
-    currentNodeId?: null;
-    currentNodeName?: null;
-  } = { status: typedStatus };
-
-  if (status === "error") {
-    updateData.error = error || "Unknown error";
-    updateData.completedAt = new Date();
-  } else if (status === "success") {
-    updateData.completedAt = new Date();
-  }
-
-  if (isTerminal) {
-    updateData.currentNodeId = null;
-    updateData.currentNodeName = null;
-    if (typeof duration === "string") {
-      updateData.duration = duration;
-    }
-  }
-
-  await db
-    .update(workflowExecutions)
-    .set(updateData)
-    .where(
-      and(
-        eq(workflowExecutions.id, executionId),
-        ne(workflowExecutions.status, "cancelled")
-      )
-    );
-
-  return NextResponse.json({ success: true });
-}
+);

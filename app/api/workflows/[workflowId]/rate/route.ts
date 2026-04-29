@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { users, workflowRatings, workflows } from "@/lib/db/schema";
 import { checkVoteRateLimit } from "@/lib/workflow/vote-rate-limit";
 import { VOTE_DIRECTIONS, isValidDirection } from "@/lib/workflow/votes";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 type RouteParams = { params: Promise<{ workflowId: string }> };
 
@@ -38,7 +39,7 @@ async function userHasDuplicated(
   return duplicated.length > 0;
 }
 
-export async function POST(
+export const POST = withTracedApiHandler("POST /api/workflows/:workflowId/rate", async function POST(
   request: Request,
   { params }: RouteParams
 ): Promise<NextResponse> {
@@ -139,4 +140,4 @@ export async function POST(
   } catch (error) {
     return apiError(error, "Failed to vote on workflow");
   }
-}
+});

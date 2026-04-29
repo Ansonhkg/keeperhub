@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createIntegration, getIntegrations } from "@/lib/db/integrations";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { getDualAuthContext } from "@/lib/middleware/auth-helpers";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import type {
   IntegrationConfig,
   IntegrationType,
@@ -35,7 +36,7 @@ export type CreateIntegrationResponse = {
  * GET /api/integrations
  * List all integrations for the authenticated user
  */
-export async function GET(request: Request) {
+async function getIntegrationsRoute(request: Request) {
   try {
     const authContext = await getDualAuthContext(request);
     if ("error" in authContext) {
@@ -94,11 +95,18 @@ export async function GET(request: Request) {
   }
 }
 
+export const GET = withTracedApiHandler(
+  "GET /api/integrations",
+  async function GET(request: Request) {
+    return await getIntegrationsRoute(request);
+  }
+);
+
 /**
  * POST /api/integrations
  * Create a new integration
  */
-export async function POST(request: Request) {
+async function createIntegrationRoute(request: Request) {
   try {
     const authContext = await getDualAuthContext(request);
     if ("error" in authContext) {
@@ -159,3 +167,10 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const POST = withTracedApiHandler(
+  "POST /api/integrations",
+  async function POST(request: Request) {
+    return await createIntegrationRoute(request);
+  }
+);

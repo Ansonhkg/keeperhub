@@ -3,7 +3,9 @@
  */
 import "server-only";
 
+import { createSpanId, formatTraceparent } from "@keeperhub/trace-sdk/core";
 import { safeFetch } from "../safe-fetch";
+import { withServerTraceSpan } from "../trace/server-span";
 import { getErrorMessage } from "../utils";
 import { type StepInput, withStepLogging } from "./step-handler";
 
@@ -26,6 +28,28 @@ function parseHeaders(httpHeaders?: string): Record<string, string> {
     return JSON.parse(httpHeaders);
   } catch {
     return {};
+  }
+}
+
+function headersWithTraceparent(input: HttpRequestInput) {
+  const headers = parseHeaders(input.httpHeaders);
+  const traceContext = input._context?.traceContext;
+  if (!(traceContext && headers.traceparent === undefined)) {
+    return headers;
+  }
+
+  const parentSpanId =
+    traceContext.spanId ?? traceContext.parentSpanId ?? createSpanId();
+  try {
+    return {
+      ...headers,
+      traceparent: formatTraceparent({
+        parentSpanId,
+        traceId: traceContext.traceId,
+      }),
+    };
+  } catch {
+    return headers;
   }
 }
 
@@ -66,12 +90,26 @@ async function httpRequest(
   }
 
   try {
-    const response = await safeFetch(input.endpoint, {
-      method: input.httpMethod,
-      headers: parseHeaders(input.httpHeaders),
-      body: parseBody(input.httpMethod, input.httpBody),
-      plugin: "http-request",
-    });
+    const endpoint = new URL(input.endpoint);
+    const response = await withServerTraceSpan(
+      {
+        attributes: {
+          host: endpoint.host,
+          method: input.httpMethod,
+          pathname: endpoint.pathname,
+        },
+        kind: "external",
+        label: `${input.httpMethod} ${endpoint.host}${endpoint.pathname}`,
+        step: "fetch.outbound",
+      },
+      () =>
+        safeFetch(input.endpoint, {
+          body: parseBody(input.httpMethod, input.httpBody),
+          headers: headersWithTraceparent(input),
+          method: input.httpMethod,
+          plugin: "http-request",
+        })
+    );
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "Unknown error");
@@ -96,7 +134,6 @@ async function httpRequest(
  * HTTP Request Step
  * Makes an HTTP request to an endpoint
  */
-// biome-ignore lint/suspicious/useAwait: workflow "use step" requires async
 export async function httpRequestStep(
   input: HttpRequestInput
 ): Promise<HttpRequestResult> {

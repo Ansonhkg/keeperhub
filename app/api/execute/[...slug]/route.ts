@@ -6,6 +6,7 @@ import { resolveAbi } from "@/lib/abi-cache";
 import { enterApiExecuteErrorContext } from "@/lib/db/org-helpers";
 import { getProtocol } from "@/lib/protocol-registry";
 import { PLUGIN_STEP_IMPORTERS } from "@/lib/step-registry";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import { resolveProtocolMeta } from "@/plugins/protocol/steps/resolve-protocol-meta";
 import {
   type ReadContractCoreInput,
@@ -156,75 +157,81 @@ async function executeProtocolAction(
   return NextResponse.json(result);
 }
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ slug: string[] }> }
-): Promise<NextResponse> {
-  const { slug } = await params;
-  const actionType = slug.join("/");
+export const POST = withTracedApiHandler(
+  "POST /api/execute/:slug",
+  async function POST(
+    request: Request,
+    { params }: { params: Promise<{ slug: string[] }> }
+  ): Promise<NextResponse> {
+    const { slug } = await params;
+    const actionType = slug.join("/");
 
-  if (slug.length < 2) {
-    return NextResponse.json(
-      { error: `Invalid action type: ${actionType}` },
-      { status: 400 }
-    );
-  }
-
-  // Verify the action exists in the registry
-  if (!PLUGIN_STEP_IMPORTERS[actionType]) {
-    return NextResponse.json(
-      { error: `Unknown action: ${actionType}` },
-      { status: 404 }
-    );
-  }
-
-  const apiKeyCtx = await validateApiKey(request);
-  if (!apiKeyCtx) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  // Enter ALS error context so plugin step errors carry org labels
-  await enterApiExecuteErrorContext(apiKeyCtx.organizationId);
-
-  const rateLimit = checkRateLimit(apiKeyCtx.apiKeyId);
-  if (!rateLimit.allowed) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded" },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfter) } }
-    );
-  }
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  try {
-    // Try protocol action first (covers all protocol read/write tools)
-    const meta = resolveProtocolMeta({ _actionType: actionType });
-    if (meta) {
-      return await executeProtocolAction(
-        actionType,
-        body,
-        apiKeyCtx.organizationId
+    if (slug.length < 2) {
+      return NextResponse.json(
+        { error: `Invalid action type: ${actionType}` },
+        { status: 400 }
       );
     }
 
-    // Non-protocol actions are not yet supported via direct execution
-    return NextResponse.json(
-      {
-        error: `Direct execution not supported for "${actionType}". Use workflow execution instead.`,
-        hint: "Create a workflow with this action and execute it via workflow_execute.",
-      },
-      { status: 501 }
-    );
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+    // Verify the action exists in the registry
+    if (!PLUGIN_STEP_IMPORTERS[actionType]) {
+      return NextResponse.json(
+        { error: `Unknown action: ${actionType}` },
+        { status: 404 }
+      );
+    }
+
+    const apiKeyCtx = await validateApiKey(request);
+    if (!apiKeyCtx) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Enter ALS error context so plugin step errors carry org labels
+    await enterApiExecuteErrorContext(apiKeyCtx.organizationId);
+
+    const rateLimit = checkRateLimit(apiKeyCtx.apiKeyId);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded" },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rateLimit.retryAfter) },
+        }
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    try {
+      // Try protocol action first (covers all protocol read/write tools)
+      const meta = resolveProtocolMeta({ _actionType: actionType });
+      if (meta) {
+        return await executeProtocolAction(
+          actionType,
+          body,
+          apiKeyCtx.organizationId
+        );
+      }
+
+      // Non-protocol actions are not yet supported via direct execution
+      return NextResponse.json(
+        {
+          error: `Direct execution not supported for "${actionType}". Use workflow execution instead.`,
+          hint: "Create a workflow with this action and execute it via workflow_execute.",
+        },
+        { status: 501 }
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return NextResponse.json(
+        { success: false, error: message },
+        { status: 500 }
+      );
+    }
   }
-}
+);

@@ -6,6 +6,7 @@ import { decrypt, encrypt } from "@/lib/db/integrations";
 import { accounts, integrations } from "@/lib/db/schema";
 import { generateId } from "@/lib/utils/id";
 import { ErrorCategory, logUserError, logSystemError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 const API_KEY_PURPOSE = "ai-gateway";
 const API_KEY_NAME = "Workflow Builder Gateway Key";
@@ -143,7 +144,7 @@ async function deleteVercelApiKey(
  * POST /api/ai-gateway/consent
  * Record consent and create API key on user's Vercel account
  */
-export async function POST(request: Request) {
+export const POST = withTracedApiHandler("POST /api/ai-gateway/consent", async function POST(request: Request) {
   if (!isAiGatewayManagedKeysEnabled()) {
     return Response.json({ error: "Feature not enabled" }, { status: 403 });
   }
@@ -224,14 +225,14 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});
 
 /**
  * DELETE /api/ai-gateway/consent?integrationId=xxx
  * Revoke consent and delete the API key
  * Requires integrationId query parameter to specify which integration to delete
  */
-export async function DELETE(request: Request) {
+export const DELETE = withTracedApiHandler("DELETE /api/ai-gateway/consent", async function DELETE(request: Request) {
   if (!isAiGatewayManagedKeysEnabled()) {
     return Response.json({ error: "Feature not enabled" }, { status: 403 });
   }
@@ -314,4 +315,4 @@ export async function DELETE(request: Request) {
     .where(eq(integrations.id, managedIntegration.id));
 
   return Response.json({ success: true, hasManagedKey: false });
-}
+});

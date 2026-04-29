@@ -6,13 +6,14 @@ import { db } from "@/lib/db";
 import { type Chain, chains, workflows } from "@/lib/db/schema";
 import type { WorkflowNode } from "@/lib/workflow-store";
 import { WorkflowTriggerEnum } from "@/lib/workflow-store";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 /**
  * Internal endpoint for workers to fetch active Event-type workflows
  * Returns only enabled workflows with Event trigger type
  * Requires X-Internal-Token header for authentication
  */
-export async function GET(request: Request) {
+export const GET = withTracedApiHandler("GET /api/workflows/events", async function GET(request: Request) {
   try {
     // Check for internal token authentication
     const internalToken = request.headers.get("X-Internal-Token");
@@ -170,5 +171,5 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
-}
+});
 

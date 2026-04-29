@@ -106,7 +106,6 @@ function extractSupportedTokenId(parsed: unknown): string | undefined {
  * Extract custom token from parsed config
  * Handles both new (single) and legacy (array/string) formats
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Handles multiple legacy formats for backwards compatibility
 function extractCustomToken(parsed: unknown): CustomToken | undefined {
   if (typeof parsed !== "object" || parsed === null) {
     return;
@@ -459,7 +458,6 @@ async function stepHandler(
  * Check Token Balance Step
  * Checks the ERC20 token balance of an address for a single token
  */
-// biome-ignore lint/suspicious/useAwait: "use step" directive requires async
 export async function checkTokenBalanceStep(
   input: CheckTokenBalanceInput
 ): Promise<CheckTokenBalanceResult> {

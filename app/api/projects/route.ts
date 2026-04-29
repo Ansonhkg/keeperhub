@@ -8,124 +8,134 @@ import {
   resolveOrganizationId,
 } from "@/lib/middleware/auth-helpers";
 import { COLOR_PALETTE } from "@/lib/palette";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
-export async function GET(request: Request) {
-  try {
-    const authCtx = await resolveOrganizationId(request);
-    if ("error" in authCtx) {
-      return NextResponse.json(
-        { error: authCtx.error },
-        { status: authCtx.status }
-      );
-    }
-    const { organizationId } = authCtx;
+export const GET = withTracedApiHandler(
+  "GET /api/projects",
+  async function GET(request: Request) {
+    try {
+      const authCtx = await resolveOrganizationId(request);
+      if ("error" in authCtx) {
+        return NextResponse.json(
+          { error: authCtx.error },
+          { status: authCtx.status }
+        );
+      }
+      const { organizationId } = authCtx;
 
-    const orgProjects = await db
-      .select({
-        id: projects.id,
-        name: projects.name,
-        description: projects.description,
-        color: projects.color,
-        organizationId: projects.organizationId,
-        createdAt: projects.createdAt,
-        updatedAt: projects.updatedAt,
-        workflowCount: count(workflows.id),
-      })
-      .from(projects)
-      .leftJoin(
-        workflows,
-        and(
-          eq(workflows.projectId, projects.id),
-          ne(workflows.name, "__current__")
+      const orgProjects = await db
+        .select({
+          id: projects.id,
+          name: projects.name,
+          description: projects.description,
+          color: projects.color,
+          organizationId: projects.organizationId,
+          createdAt: projects.createdAt,
+          updatedAt: projects.updatedAt,
+          workflowCount: count(workflows.id),
+        })
+        .from(projects)
+        .leftJoin(
+          workflows,
+          and(
+            eq(workflows.projectId, projects.id),
+            ne(workflows.name, "__current__")
+          )
         )
-      )
-      .where(eq(projects.organizationId, organizationId))
-      .groupBy(projects.id)
-      .orderBy(projects.name);
+        .where(eq(projects.organizationId, organizationId))
+        .groupBy(projects.id)
+        .orderBy(projects.name);
 
-    const response = orgProjects.map((p) => ({
-      ...p,
-      createdAt: p.createdAt.toISOString(),
-      updatedAt: p.updatedAt.toISOString(),
-    }));
+      const response = orgProjects.map((p) => ({
+        ...p,
+        createdAt: p.createdAt.toISOString(),
+        updatedAt: p.updatedAt.toISOString(),
+      }));
 
-    return NextResponse.json(response);
-  } catch (error) {
-    logSystemError(
-      ErrorCategory.DATABASE,
-      "[Projects] Failed to list projects",
-      error,
-      { endpoint: "/api/projects", operation: "list" }
-    );
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to list projects",
-      },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: Request) {
-  try {
-    const resolved = await resolveCreatorContext(request);
-    if ("error" in resolved) {
+      return NextResponse.json(response);
+    } catch (error) {
+      logSystemError(
+        ErrorCategory.DATABASE,
+        "[Projects] Failed to list projects",
+        error,
+        { endpoint: "/api/projects", operation: "list" }
+      );
       return NextResponse.json(
-        { error: resolved.error },
-        { status: resolved.status }
+        {
+          error:
+            error instanceof Error ? error.message : "Failed to list projects",
+        },
+        { status: 500 }
       );
     }
-    const { organizationId, userId: creatorUserId } = resolved;
-
-    const body = await request.json().catch(() => ({}));
-    const name = body.name?.trim();
-
-    if (!name) {
-      return NextResponse.json({ error: "Name is required" }, { status: 400 });
-    }
-
-    const existingCount = await db
-      .select({ value: count() })
-      .from(projects)
-      .where(eq(projects.organizationId, organizationId));
-
-    const colorIndex = (existingCount[0]?.value ?? 0) % COLOR_PALETTE.length;
-    const color = body.color || COLOR_PALETTE[colorIndex];
-
-    const [newProject] = await db
-      .insert(projects)
-      .values({
-        name,
-        description: body.description?.trim() || null,
-        color,
-        organizationId,
-        userId: creatorUserId,
-      })
-      .returning();
-
-    return NextResponse.json(
-      {
-        ...newProject,
-        workflowCount: 0,
-        createdAt: newProject.createdAt.toISOString(),
-        updatedAt: newProject.updatedAt.toISOString(),
-      },
-      { status: 201 }
-    );
-  } catch (error) {
-    logSystemError(
-      ErrorCategory.DATABASE,
-      "[Projects] Failed to create project",
-      error,
-      { endpoint: "/api/projects", operation: "create" }
-    );
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to create project",
-      },
-      { status: 500 }
-    );
   }
-}
+);
+
+export const POST = withTracedApiHandler(
+  "POST /api/projects",
+  async function POST(request: Request) {
+    try {
+      const resolved = await resolveCreatorContext(request);
+      if ("error" in resolved) {
+        return NextResponse.json(
+          { error: resolved.error },
+          { status: resolved.status }
+        );
+      }
+      const { organizationId, userId: creatorUserId } = resolved;
+
+      const body = await request.json().catch(() => ({}));
+      const name = body.name?.trim();
+
+      if (!name) {
+        return NextResponse.json(
+          { error: "Name is required" },
+          { status: 400 }
+        );
+      }
+
+      const existingCount = await db
+        .select({ value: count() })
+        .from(projects)
+        .where(eq(projects.organizationId, organizationId));
+
+      const colorIndex = (existingCount[0]?.value ?? 0) % COLOR_PALETTE.length;
+      const color = body.color || COLOR_PALETTE[colorIndex];
+
+      const [newProject] = await db
+        .insert(projects)
+        .values({
+          name,
+          description: body.description?.trim() || null,
+          color,
+          organizationId,
+          userId: creatorUserId,
+        })
+        .returning();
+
+      return NextResponse.json(
+        {
+          ...newProject,
+          workflowCount: 0,
+          createdAt: newProject.createdAt.toISOString(),
+          updatedAt: newProject.updatedAt.toISOString(),
+        },
+        { status: 201 }
+      );
+    } catch (error) {
+      logSystemError(
+        ErrorCategory.DATABASE,
+        "[Projects] Failed to create project",
+        error,
+        { endpoint: "/api/projects", operation: "create" }
+      );
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : "Failed to create project",
+        },
+        { status: 500 }
+      );
+    }
+  }
+);

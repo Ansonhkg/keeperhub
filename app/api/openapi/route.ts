@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { workflows } from "@/lib/db/schema";
 import { sanitizeDescription } from "@/lib/sanitize-description";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 export const dynamic = "force-dynamic";
 
@@ -126,44 +127,47 @@ function buildPathEntry(workflow: DiscoveryWorkflow): Record<string, unknown> {
   return { post: operation };
 }
 
-export async function GET(request: Request): Promise<Response> {
-  const baseUrl = deriveBaseUrl(request);
+export const GET = withTracedApiHandler(
+  "GET /api/openapi",
+  async function GET(request: Request): Promise<Response> {
+    const baseUrl = deriveBaseUrl(request);
 
-  const rows = await db
-    .select(DISCOVERY_COLUMNS)
-    .from(workflows)
-    .where(eq(workflows.isListed, true));
+    const rows = await db
+      .select(DISCOVERY_COLUMNS)
+      .from(workflows)
+      .where(eq(workflows.isListed, true));
 
-  const paths: Record<string, Record<string, unknown>> = {};
+    const paths: Record<string, Record<string, unknown>> = {};
 
-  for (const row of rows as DiscoveryWorkflow[]) {
-    if (!row.listedSlug) {
-      continue;
+    for (const row of rows as DiscoveryWorkflow[]) {
+      if (!row.listedSlug) {
+        continue;
+      }
+      paths[`/api/mcp/workflows/${row.listedSlug}/call`] = buildPathEntry(row);
     }
-    paths[`/api/mcp/workflows/${row.listedSlug}/call`] = buildPathEntry(row);
+
+    const doc = {
+      openapi: "3.1.0",
+      info: {
+        title: "KeeperHub",
+        version: "1.0.0",
+        description:
+          "Web3 workflow automation platform. Workflows are callable by AI agents via REST or MCP.",
+        "x-guidance":
+          "KeeperHub exposes workflows as REST endpoints. Each workflow has a slug and accepts JSON input. Paid workflows require x402 or MPP payment. Free workflows can be called directly. Use GET /api/mcp/workflows to discover available workflows and their pricing.",
+      },
+      "x-service-info": {
+        categories: ["web3", "automation", "blockchain"],
+        docs: { homepage: "https://docs.keeperhub.com" },
+      },
+      servers: [{ url: baseUrl }],
+      paths,
+    };
+
+    return Response.json(doc, {
+      headers: {
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=600",
+      },
+    });
   }
-
-  const doc = {
-    openapi: "3.1.0",
-    info: {
-      title: "KeeperHub",
-      version: "1.0.0",
-      description:
-        "Web3 workflow automation platform. Workflows are callable by AI agents via REST or MCP.",
-      "x-guidance":
-        "KeeperHub exposes workflows as REST endpoints. Each workflow has a slug and accepts JSON input. Paid workflows require x402 or MPP payment. Free workflows can be called directly. Use GET /api/mcp/workflows to discover available workflows and their pricing.",
-    },
-    "x-service-info": {
-      categories: ["web3", "automation", "blockchain"],
-      docs: { homepage: "https://docs.keeperhub.com" },
-    },
-    servers: [{ url: baseUrl }],
-    paths,
-  };
-
-  return Response.json(doc, {
-    headers: {
-      "Cache-Control": "public, max-age=300, stale-while-revalidate=600",
-    },
-  });
-}
+);

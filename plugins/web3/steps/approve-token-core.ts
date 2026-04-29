@@ -76,7 +76,6 @@ export type ApproveTokenResult =
  * Supports human-readable amounts (converted via decimals) and "max" for unlimited approval.
  * When _context.organizationId is provided, skips workflowExecutions lookup.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Token approval handler with comprehensive validation and error handling
 export async function approveTokenCore(
   input: ApproveTokenCoreInput
 ): Promise<ApproveTokenResult> {

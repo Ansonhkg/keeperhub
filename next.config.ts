@@ -4,6 +4,7 @@ import { withWorkflow } from "workflow/next";
 
 const nextConfig = {
   output: "standalone",
+  transpilePackages: ["@keeperhub/trace-sdk"],
   // Admin test routes (app/api/admin/test/**/route.staging.ts) are excluded
   // from the prod bundle by omitting "staging.ts" from pageExtensions. See
   // KEEP-237. Staging/PR builds set INCLUDE_TEST_ENDPOINTS=true via the build

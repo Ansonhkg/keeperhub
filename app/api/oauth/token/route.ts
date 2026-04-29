@@ -10,6 +10,7 @@ import {
   storeRefreshToken,
 } from "@/lib/mcp/oauth-store";
 import { checkIpRateLimit, getClientIp } from "@/lib/mcp/rate-limit";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 export const dynamic = "force-dynamic";
 
@@ -144,46 +145,49 @@ async function handleRefreshToken(params: URLSearchParams): Promise<Response> {
   });
 }
 
-export async function POST(request: Request): Promise<Response> {
-  const ip = getClientIp(request);
-  const rateLimit = checkIpRateLimit(ip, 30, 60_000);
-  if (!rateLimit.allowed) {
-    return Response.json(
-      { error: "Too many requests" },
-      {
-        status: 429,
-        headers: { "Retry-After": String(rateLimit.retryAfter) },
+export const POST = withTracedApiHandler(
+  "POST /api/oauth/token",
+  async function POST(request: Request): Promise<Response> {
+    const ip = getClientIp(request);
+    const rateLimit = checkIpRateLimit(ip, 30, 60_000);
+    if (!rateLimit.allowed) {
+      return Response.json(
+        { error: "Too many requests" },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rateLimit.retryAfter) },
+        }
+      );
+    }
+
+    let params: URLSearchParams;
+
+    const contentType = request.headers.get("content-type") ?? "";
+    if (contentType.includes("application/x-www-form-urlencoded")) {
+      const text = await request.text();
+      params = new URLSearchParams(text);
+    } else {
+      try {
+        const body = (await request.json()) as Record<string, string>;
+        params = new URLSearchParams(body);
+      } catch {
+        return jsonError("Invalid request body", 400);
       }
+    }
+
+    const grantType = params.get("grant_type");
+
+    if (grantType === "authorization_code") {
+      return await handleAuthorizationCode(params);
+    }
+
+    if (grantType === "refresh_token") {
+      return await handleRefreshToken(params);
+    }
+
+    return jsonError(
+      "Unsupported grant_type. Supported: authorization_code, refresh_token",
+      400
     );
   }
-
-  let params: URLSearchParams;
-
-  const contentType = request.headers.get("content-type") ?? "";
-  if (contentType.includes("application/x-www-form-urlencoded")) {
-    const text = await request.text();
-    params = new URLSearchParams(text);
-  } else {
-    try {
-      const body = (await request.json()) as Record<string, string>;
-      params = new URLSearchParams(body);
-    } catch {
-      return jsonError("Invalid request body", 400);
-    }
-  }
-
-  const grantType = params.get("grant_type");
-
-  if (grantType === "authorization_code") {
-    return await handleAuthorizationCode(params);
-  }
-
-  if (grantType === "refresh_token") {
-    return await handleRefreshToken(params);
-  }
-
-  return jsonError(
-    "Unsupported grant_type. Supported: authorization_code, refresh_token",
-    400
-  );
-}
+);

@@ -12,7 +12,6 @@ vi.mock("@/lib/metrics/instrumentation/plugin", () => ({
 
 vi.mock("@/lib/logging", () => ({
   ErrorCategory: { VALIDATION: "VALIDATION" },
-  // biome-ignore lint/suspicious/noEmptyBlockStatements: intentional no-op mock
   logUserError: () => {},
 }));
 
@@ -57,7 +56,6 @@ async function expectSuccess(
   overrides: Partial<RunCodeCoreInput>
 ): Promise<SuccessResult> {
   const result = await run(overrides);
-  // biome-ignore lint/suspicious/noMisplacedAssertion: helper called exclusively from inside test() blocks
   expect(result.success).toBe(true);
   return result as SuccessResult;
 }
@@ -66,7 +64,6 @@ async function expectFailure(
   overrides: Partial<RunCodeCoreInput>
 ): Promise<FailureResult> {
   const result = await run(overrides);
-  // biome-ignore lint/suspicious/noMisplacedAssertion: helper called exclusively from inside test() blocks
   expect(result.success).toBe(false);
   return result as FailureResult;
 }

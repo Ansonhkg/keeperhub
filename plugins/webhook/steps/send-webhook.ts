@@ -46,7 +46,6 @@ function parseJsonSafely(jsonString: string | undefined): unknown {
 /**
  * Core logic - portable between app and export
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Webhook handling requires validation of URL, headers, body
 async function stepHandler(
   input: SendWebhookCoreInput
 ): Promise<SendWebhookResult> {
@@ -195,7 +194,6 @@ async function stepHandler(
 /**
  * App entry point - wraps with logging
  */
-// biome-ignore lint/suspicious/useAwait: "use step" directive requires async
 export async function sendWebhookStep(
   input: SendWebhookInput
 ): Promise<SendWebhookResult> {

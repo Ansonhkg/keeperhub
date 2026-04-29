@@ -20,6 +20,7 @@ import { apiKeys, workflowExecutions, workflows } from "@/lib/db/schema";
 import { getOrgSlug } from "@/lib/db/org-helpers";
 import { executeWorkflow } from "@/lib/workflow-executor.workflow";
 import type { WorkflowEdge, WorkflowNode } from "@/lib/workflow-store";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 // Validate API key and return the user ID if valid
 async function validateApiKey(
   authHeader: string | null,
@@ -137,7 +138,7 @@ export function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders });
 }
 
-export async function POST(
+export const POST = withTracedApiHandler("POST /api/workflows/:workflowId/webhook", async function POST(
   request: Request,
   context: { params: Promise<{ workflowId: string }> }
 ) {
@@ -326,4 +327,4 @@ export async function POST(
       { status: 500, headers: corsHeaders }
     );
   }
-}
+});

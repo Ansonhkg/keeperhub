@@ -175,7 +175,6 @@ const MOCK_INPUTS: Record<string, Record<string, unknown>> = {
 // Profiler
 // ============================================================================
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Profiler requires sequential setup, execution, and teardown
 async function profileStep(
   stepName: string,
   input: Record<string, unknown>,
@@ -287,7 +286,6 @@ async function profileStep(
  * Profile a step using V8 Precise Coverage API
  * Returns EXACT function call counts (not statistical sampling)
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Profiler requires sequential setup, execution, and teardown
 async function profileStepPrecise(
   stepName: string,
   input: Record<string, unknown>,
@@ -511,7 +509,6 @@ function formatComparison(results: ProfileResult[]): string {
 // CLI
 // ============================================================================
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: CLI argument parsing with multiple code paths
 async function main() {
   const args = process.argv.slice(2);
 

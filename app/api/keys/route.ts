@@ -7,6 +7,7 @@ import { organizationApiKeys, users } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { resolveOrganizationId } from "@/lib/middleware/auth-helpers";
 import { getOrgContext } from "@/lib/middleware/org-context";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 // Generate a secure API key with KeeperHub prefix
 function generateApiKey(): { key: string; hash: string; prefix: string } {
@@ -18,157 +19,163 @@ function generateApiKey(): { key: string; hash: string; prefix: string } {
 }
 
 // GET - List all API keys for the current organization
-export async function GET(request: Request) {
-  try {
-    const authCtx = await resolveOrganizationId(request);
-    if ("error" in authCtx) {
-      return NextResponse.json(
-        { error: authCtx.error },
-        { status: authCtx.status }
-      );
-    }
-    const { organizationId: activeOrgId } = authCtx;
+export const GET = withTracedApiHandler(
+  "GET /api/keys",
+  async function GET(request: Request) {
+    try {
+      const authCtx = await resolveOrganizationId(request);
+      if ("error" in authCtx) {
+        return NextResponse.json(
+          { error: authCtx.error },
+          { status: authCtx.status }
+        );
+      }
+      const { organizationId: activeOrgId } = authCtx;
 
-    // List all non-revoked API keys for the organization
-    const keys = await db.query.organizationApiKeys.findMany({
-      where: and(
-        eq(organizationApiKeys.organizationId, activeOrgId),
-        isNull(organizationApiKeys.revokedAt)
-      ),
-      columns: {
-        id: true,
-        name: true,
-        keyPrefix: true,
-        createdBy: true,
-        createdAt: true,
-        lastUsedAt: true,
-        expiresAt: true,
-      },
-      orderBy: (table, { desc }) => [desc(table.createdAt)],
-    });
-
-    // Get unique creator IDs and fetch their names
-    const creatorIds = [
-      ...new Set(keys.map((k) => k.createdBy).filter(Boolean)),
-    ] as string[];
-    const creators =
-      creatorIds.length > 0
-        ? await db.query.users.findMany({
-            where: inArray(users.id, creatorIds),
-            columns: { id: true, name: true },
-          })
-        : [];
-    const creatorMap = new Map(creators.map((u) => [u.id, u.name]));
-
-    // Add createdByName to response
-    const response = keys.map((key) => ({
-      ...key,
-      createdByName: key.createdBy
-        ? creatorMap.get(key.createdBy) || null
-        : null,
-      createdBy: undefined,
-    }));
-
-    return NextResponse.json(response);
-  } catch (error) {
-    logSystemError(
-      ErrorCategory.DATABASE,
-      "[API Keys] Failed to list API keys",
-      error,
-      { endpoint: "/api/keys", operation: "list" }
-    );
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to list API keys",
-      },
-      { status: 500 }
-    );
-  }
-}
-
-// POST - Create a new API key for the current organization
-export async function POST(request: Request) {
-  try {
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    });
-
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const orgContext = await getOrgContext();
-    const activeOrgId = orgContext.organization?.id;
-
-    if (!activeOrgId) {
-      return NextResponse.json(
-        { error: "No active organization" },
-        { status: 400 }
-      );
-    }
-
-    // Check if user is anonymous
-    const isAnonymous =
-      session.user.name === "Anonymous" ||
-      session.user.email?.startsWith("temp-");
-
-    if (isAnonymous) {
-      return NextResponse.json(
-        { error: "Anonymous users cannot create API keys" },
-        { status: 403 }
-      );
-    }
-
-    // Parse request body
-    const body = await request.json().catch(() => ({}));
-    const name = body.name || null;
-    const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
-
-    // Generate new API key
-    const { key, hash, prefix } = generateApiKey();
-
-    // Save to database
-    const [newKey] = await db
-      .insert(organizationApiKeys)
-      .values({
-        organizationId: activeOrgId,
-        name,
-        keyHash: hash,
-        keyPrefix: prefix,
-        createdBy: session.user.id,
-        expiresAt,
-      })
-      .returning({
-        id: organizationApiKeys.id,
-        name: organizationApiKeys.name,
-        keyPrefix: organizationApiKeys.keyPrefix,
-        createdAt: organizationApiKeys.createdAt,
-        expiresAt: organizationApiKeys.expiresAt,
+      // List all non-revoked API keys for the organization
+      const keys = await db.query.organizationApiKeys.findMany({
+        where: and(
+          eq(organizationApiKeys.organizationId, activeOrgId),
+          isNull(organizationApiKeys.revokedAt)
+        ),
+        columns: {
+          id: true,
+          name: true,
+          keyPrefix: true,
+          createdBy: true,
+          createdAt: true,
+          lastUsedAt: true,
+          expiresAt: true,
+        },
+        orderBy: (table, { desc }) => [desc(table.createdAt)],
       });
 
-    console.log(
-      `[API Keys] Created new API key for organization ${activeOrgId}: ${newKey.id}`
-    );
+      // Get unique creator IDs and fetch their names
+      const creatorIds = [
+        ...new Set(keys.map((k) => k.createdBy).filter(Boolean)),
+      ] as string[];
+      const creators =
+        creatorIds.length > 0
+          ? await db.query.users.findMany({
+              where: inArray(users.id, creatorIds),
+              columns: { id: true, name: true },
+            })
+          : [];
+      const creatorMap = new Map(creators.map((u) => [u.id, u.name]));
 
-    // Return the full key only on creation (won't be shown again)
-    return NextResponse.json({
-      ...newKey,
-      key, // Full key - only returned once!
-    });
-  } catch (error) {
-    logSystemError(
-      ErrorCategory.DATABASE,
-      "[API Keys] Failed to create API key",
-      error,
-      { endpoint: "/api/keys", operation: "create" }
-    );
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to create API key",
-      },
-      { status: 500 }
-    );
+      // Add createdByName to response
+      const response = keys.map((key) => ({
+        ...key,
+        createdByName: key.createdBy
+          ? creatorMap.get(key.createdBy) || null
+          : null,
+        createdBy: undefined,
+      }));
+
+      return NextResponse.json(response);
+    } catch (error) {
+      logSystemError(
+        ErrorCategory.DATABASE,
+        "[API Keys] Failed to list API keys",
+        error,
+        { endpoint: "/api/keys", operation: "list" }
+      );
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : "Failed to list API keys",
+        },
+        { status: 500 }
+      );
+    }
   }
-}
+);
+
+// POST - Create a new API key for the current organization
+export const POST = withTracedApiHandler(
+  "POST /api/keys",
+  async function POST(request: Request) {
+    try {
+      const session = await auth.api.getSession({
+        headers: request.headers,
+      });
+
+      if (!session?.user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const orgContext = await getOrgContext();
+      const activeOrgId = orgContext.organization?.id;
+
+      if (!activeOrgId) {
+        return NextResponse.json(
+          { error: "No active organization" },
+          { status: 400 }
+        );
+      }
+
+      // Check if user is anonymous
+      const isAnonymous =
+        session.user.name === "Anonymous" ||
+        session.user.email?.startsWith("temp-");
+
+      if (isAnonymous) {
+        return NextResponse.json(
+          { error: "Anonymous users cannot create API keys" },
+          { status: 403 }
+        );
+      }
+
+      // Parse request body
+      const body = await request.json().catch(() => ({}));
+      const name = body.name || null;
+      const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
+
+      // Generate new API key
+      const { key, hash, prefix } = generateApiKey();
+
+      // Save to database
+      const [newKey] = await db
+        .insert(organizationApiKeys)
+        .values({
+          organizationId: activeOrgId,
+          name,
+          keyHash: hash,
+          keyPrefix: prefix,
+          createdBy: session.user.id,
+          expiresAt,
+        })
+        .returning({
+          id: organizationApiKeys.id,
+          name: organizationApiKeys.name,
+          keyPrefix: organizationApiKeys.keyPrefix,
+          createdAt: organizationApiKeys.createdAt,
+          expiresAt: organizationApiKeys.expiresAt,
+        });
+
+      console.log(
+        `[API Keys] Created new API key for organization ${activeOrgId}: ${newKey.id}`
+      );
+
+      // Return the full key only on creation (won't be shown again)
+      return NextResponse.json({
+        ...newKey,
+        key, // Full key - only returned once!
+      });
+    } catch (error) {
+      logSystemError(
+        ErrorCategory.DATABASE,
+        "[API Keys] Failed to create API key",
+        error,
+        { endpoint: "/api/keys", operation: "create" }
+      );
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : "Failed to create API key",
+        },
+        { status: 500 }
+      );
+    }
+  }
+);

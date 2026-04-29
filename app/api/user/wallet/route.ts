@@ -12,6 +12,7 @@ import { createIntegration } from "@/lib/db/integrations";
 import { integrations, organizationWallets } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { getActiveOrgId } from "@/lib/middleware/org-context";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import { createTurnkeyWallet } from "@/lib/turnkey/turnkey-client";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -198,189 +199,200 @@ async function storeTurnkeyWalletAndIntegration(options: {
   return { walletAddress: normalizedWalletAddress, walletId: turnkeyWalletId };
 }
 
-export async function GET(request: Request) {
-  try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+export const GET = withTracedApiHandler(
+  "GET /api/user/wallet",
+  async function GET(request: Request) {
+    try {
+      const session = await auth.api.getSession({ headers: request.headers });
+      if (!session?.user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
 
-    const activeOrgId = getActiveOrgId(session);
-    if (!activeOrgId) {
-      return NextResponse.json(
-        { error: "No active organization" },
-        { status: 400 }
-      );
-    }
+      const activeOrgId = getActiveOrgId(session);
+      if (!activeOrgId) {
+        return NextResponse.json(
+          { error: "No active organization" },
+          { status: 400 }
+        );
+      }
 
-    const userId = session.user.id;
+      const userId = session.user.id;
 
-    const allWallets = await db
-      .select()
-      .from(organizationWallets)
-      .where(eq(organizationWallets.organizationId, activeOrgId));
+      const allWallets = await db
+        .select()
+        .from(organizationWallets)
+        .where(eq(organizationWallets.organizationId, activeOrgId));
 
-    if (allWallets.length === 0) {
+      if (allWallets.length === 0) {
+        return NextResponse.json({
+          hasWallet: false,
+          wallets: [],
+          message: "No wallet found for this organization",
+        });
+      }
+
+      const PROVIDER_ORDER: Record<"para" | "turnkey", number> = {
+        para: 0,
+        turnkey: 1,
+      } as const;
+      const wallets = allWallets
+        .map((w) => ({
+          id: w.id,
+          provider: w.provider,
+          canExportKey: w.provider === "turnkey",
+          // Only the wallet creator may export its key, regardless of org role.
+          isOwner: w.userId === userId,
+          walletAddress: w.walletAddress,
+          walletId: w.paraWalletId ?? w.turnkeyWalletId,
+          email: w.email,
+          createdAt: w.createdAt,
+          organizationId: w.organizationId,
+          isActive: w.isActive,
+        }))
+        .sort(
+          (a, b) => PROVIDER_ORDER[a.provider] - PROVIDER_ORDER[b.provider]
+        );
+
+      const primary = wallets.find((w) => w.isActive) ?? wallets[0];
+
       return NextResponse.json({
-        hasWallet: false,
-        wallets: [],
-        message: "No wallet found for this organization",
+        hasWallet: true,
+        ...primary,
+        wallets,
       });
+    } catch (error) {
+      return apiError(error, "Failed to get wallet");
     }
-
-    const PROVIDER_ORDER: Record<"para" | "turnkey", number> = {
-      para: 0,
-      turnkey: 1,
-    } as const;
-    const wallets = allWallets
-      .map((w) => ({
-        id: w.id,
-        provider: w.provider,
-        canExportKey: w.provider === "turnkey",
-        // Only the wallet creator may export its key, regardless of org role.
-        isOwner: w.userId === userId,
-        walletAddress: w.walletAddress,
-        walletId: w.paraWalletId ?? w.turnkeyWalletId,
-        email: w.email,
-        createdAt: w.createdAt,
-        organizationId: w.organizationId,
-        isActive: w.isActive,
-      }))
-      .sort((a, b) => PROVIDER_ORDER[a.provider] - PROVIDER_ORDER[b.provider]);
-
-    const primary = wallets.find((w) => w.isActive) ?? wallets[0];
-
-    return NextResponse.json({
-      hasWallet: true,
-      ...primary,
-      wallets,
-    });
-  } catch (error) {
-    return apiError(error, "Failed to get wallet");
   }
-}
+);
 
-export async function POST(request: Request) {
-  try {
-    // 1. Validate user, organization, and admin permissions
-    const validation = await validateUserAndOrganization(request);
-    if ("error" in validation) {
-      return NextResponse.json(
-        { error: validation.error },
-        { status: validation.status }
-      );
-    }
-    const { user, organizationId } = validation;
+export const POST = withTracedApiHandler(
+  "POST /api/user/wallet",
+  async function POST(request: Request) {
+    try {
+      // 1. Validate user, organization, and admin permissions
+      const validation = await validateUserAndOrganization(request);
+      if ("error" in validation) {
+        return NextResponse.json(
+          { error: validation.error },
+          { status: validation.status }
+        );
+      }
+      const { user, organizationId } = validation;
 
-    const body: { email?: string } = await request.json();
-    const walletEmail = body.email;
+      const body: { email?: string } = await request.json();
+      const walletEmail = body.email;
 
-    if (!walletEmail || typeof walletEmail !== "string") {
-      return NextResponse.json(
-        { error: "Email is required to create a wallet" },
-        { status: 400 }
-      );
-    }
+      if (!walletEmail || typeof walletEmail !== "string") {
+        return NextResponse.json(
+          { error: "Email is required to create a wallet" },
+          { status: 400 }
+        );
+      }
 
-    if (!EMAIL_REGEX.test(walletEmail)) {
-      return NextResponse.json(
-        { error: "Invalid email format" },
-        { status: 400 }
-      );
-    }
+      if (!EMAIL_REGEX.test(walletEmail)) {
+        return NextResponse.json(
+          { error: "Invalid email format" },
+          { status: 400 }
+        );
+      }
 
-    const existingCheck = await checkExistingWallet(organizationId);
-    if ("error" in existingCheck) {
-      return NextResponse.json(
-        { error: existingCheck.error },
-        { status: existingCheck.status }
-      );
-    }
+      const existingCheck = await checkExistingWallet(organizationId);
+      if ("error" in existingCheck) {
+        return NextResponse.json(
+          { error: existingCheck.error },
+          { status: existingCheck.status }
+        );
+      }
 
-    const orgName = `org-${organizationId.slice(0, 8)}`;
-    const turnkeyResult = await createTurnkeyWallet(walletEmail, orgName);
+      const orgName = `org-${organizationId.slice(0, 8)}`;
+      const turnkeyResult = await createTurnkeyWallet(walletEmail, orgName);
 
-    const { walletAddress: storedAddress, walletId } =
-      await storeTurnkeyWalletAndIntegration({
-        userId: user.id,
-        organizationId,
-        email: walletEmail,
-        walletAddress: turnkeyResult.walletAddress,
-        turnkeySubOrgId: turnkeyResult.subOrgId,
-        turnkeyWalletId: turnkeyResult.walletId,
-        turnkeyPrivateKeyId: turnkeyResult.privateKeyId,
+      const { walletAddress: storedAddress, walletId } =
+        await storeTurnkeyWalletAndIntegration({
+          userId: user.id,
+          organizationId,
+          email: walletEmail,
+          walletAddress: turnkeyResult.walletAddress,
+          turnkeySubOrgId: turnkeyResult.subOrgId,
+          turnkeyWalletId: turnkeyResult.walletId,
+          turnkeyPrivateKeyId: turnkeyResult.privateKeyId,
+        });
+
+      return NextResponse.json({
+        success: true,
+        wallet: {
+          address: storedAddress,
+          walletId,
+          email: walletEmail,
+          organizationId,
+          provider: "turnkey",
+        },
       });
-
-    return NextResponse.json({
-      success: true,
-      wallet: {
-        address: storedAddress,
-        walletId,
-        email: walletEmail,
-        organizationId,
-        provider: "turnkey",
-      },
-    });
-  } catch (error) {
-    return getErrorResponse(error);
+    } catch (error) {
+      return getErrorResponse(error);
+    }
   }
-}
+);
 
-export async function DELETE(request: Request) {
-  try {
-    // 1. Validate user, organization, and admin permissions
-    const validation = await validateUserAndOrganization(request);
-    if ("error" in validation) {
-      return NextResponse.json(
-        { error: validation.error },
-        { status: validation.status }
-      );
-    }
-    const { organizationId } = validation;
+export const DELETE = withTracedApiHandler(
+  "DELETE /api/user/wallet",
+  async function DELETE(request: Request) {
+    try {
+      // 1. Validate user, organization, and admin permissions
+      const validation = await validateUserAndOrganization(request);
+      if ("error" in validation) {
+        return NextResponse.json(
+          { error: validation.error },
+          { status: validation.status }
+        );
+      }
+      const { organizationId } = validation;
 
-    // 2. Delete only the active wallet for this organization.
-    // During Para → Turnkey migration both wallets may coexist; the inactive
-    // Para row must be removed via a dedicated admin flow (follow-up ticket).
-    const deletedWallet = await db
-      .delete(organizationWallets)
-      .where(
-        and(
-          eq(organizationWallets.organizationId, organizationId),
-          eq(organizationWallets.isActive, true)
-        )
-      )
-      .returning();
-
-    if (deletedWallet.length === 0) {
-      return NextResponse.json(
-        { error: "No wallet found to delete" },
-        { status: 404 }
-      );
-    }
-
-    // 3. Delete associated Web3 integration record only if no wallet remains
-    const remaining = await db
-      .select({ id: organizationWallets.id })
-      .from(organizationWallets)
-      .where(eq(organizationWallets.organizationId, organizationId))
-      .limit(1);
-
-    if (remaining.length === 0) {
-      await db
-        .delete(integrations)
+      // 2. Delete only the active wallet for this organization.
+      // During Para → Turnkey migration both wallets may coexist; the inactive
+      // Para row must be removed via a dedicated admin flow (follow-up ticket).
+      const deletedWallet = await db
+        .delete(organizationWallets)
         .where(
           and(
-            eq(integrations.organizationId, organizationId),
-            eq(integrations.type, "web3")
+            eq(organizationWallets.organizationId, organizationId),
+            eq(organizationWallets.isActive, true)
           )
-        );
-    }
+        )
+        .returning();
 
-    return NextResponse.json({
-      success: true,
-      message: "Wallet deleted successfully",
-    });
-  } catch (error) {
-    return apiError(error, "Failed to delete wallet");
+      if (deletedWallet.length === 0) {
+        return NextResponse.json(
+          { error: "No wallet found to delete" },
+          { status: 404 }
+        );
+      }
+
+      // 3. Delete associated Web3 integration record only if no wallet remains
+      const remaining = await db
+        .select({ id: organizationWallets.id })
+        .from(organizationWallets)
+        .where(eq(organizationWallets.organizationId, organizationId))
+        .limit(1);
+
+      if (remaining.length === 0) {
+        await db
+          .delete(integrations)
+          .where(
+            and(
+              eq(integrations.organizationId, organizationId),
+              eq(integrations.type, "web3")
+            )
+          );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Wallet deleted successfully",
+      });
+    } catch (error) {
+      return apiError(error, "Failed to delete wallet");
+    }
   }
-}
+);

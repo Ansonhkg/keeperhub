@@ -20,7 +20,6 @@ import {
 } from "@/lib/billing/providers/stripe";
 import { stripe } from "@/lib/stripe";
 
-// biome-ignore lint/style/noNonNullAssertion: stripe is mocked above and always defined in tests
 const s = stripe!;
 const provider = new StripeBillingProvider();
 

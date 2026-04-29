@@ -13,38 +13,42 @@
  */
 import { getApprovalRequest } from "@/lib/agentic-wallet/approval";
 import { verifyHmacRequest } from "@/lib/agentic-wallet/hmac";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-): Promise<Response> {
-  // GET carries no body; the client must sign sha256("") for the body digest
-  // slot in the HMAC signing string. This mirrors how curl/fetch send GET.
-  const auth = await verifyHmacRequest(request, "");
-  if (!auth.ok) {
-    return Response.json({ error: auth.error }, { status: auth.status });
-  }
+export const GET = withTracedApiHandler(
+  "GET /api/agentic-wallet/approval-request/:id",
+  async function GET(
+    request: Request,
+    context: { params: Promise<{ id: string }> }
+  ): Promise<Response> {
+    // GET carries no body; the client must sign sha256("") for the body digest
+    // slot in the HMAC signing string. This mirrors how curl/fetch send GET.
+    const auth = await verifyHmacRequest(request, "");
+    if (!auth.ok) {
+      return Response.json({ error: auth.error }, { status: auth.status });
+    }
 
-  const { id } = await context.params;
-  const row = await getApprovalRequest(id);
-  if (!row) {
-    return Response.json({ error: "Not found" }, { status: 404 });
-  }
-  // T-33-06b: cross-sub-org probe returns 404, not 403, so callers cannot use
-  // a known id to test whether a row exists under another sub-org.
-  if (row.subOrgId !== auth.subOrgId) {
-    return Response.json({ error: "Not found" }, { status: 404 });
-  }
+    const { id } = await context.params;
+    const row = await getApprovalRequest(id);
+    if (!row) {
+      return Response.json({ error: "Not found" }, { status: 404 });
+    }
+    // T-33-06b: cross-sub-org probe returns 404, not 403, so callers cannot use
+    // a known id to test whether a row exists under another sub-org.
+    if (row.subOrgId !== auth.subOrgId) {
+      return Response.json({ error: "Not found" }, { status: 404 });
+    }
 
-  return Response.json({
-    id: row.id,
-    status: row.status,
-    riskLevel: row.riskLevel,
-    operationPayload: row.operationPayload,
-    createdAt: row.createdAt,
-    resolvedAt: row.resolvedAt,
-    resolvedByUserId: row.resolvedByUserId,
-  });
-}
+    return Response.json({
+      id: row.id,
+      status: row.status,
+      riskLevel: row.riskLevel,
+      operationPayload: row.operationPayload,
+      createdAt: row.createdAt,
+      resolvedAt: row.resolvedAt,
+      resolvedByUserId: row.resolvedByUserId,
+    });
+  }
+);

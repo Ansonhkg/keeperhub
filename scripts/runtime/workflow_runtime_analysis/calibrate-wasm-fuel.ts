@@ -300,7 +300,6 @@ async function runCalibration(
 // Output Formatting
 // ============================================================================
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Report formatting has many branches for categories
 function formatResults(results: CalibrationResult[]): string {
   const lines: string[] = [];
 

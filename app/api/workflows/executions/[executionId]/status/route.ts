@@ -6,13 +6,14 @@ import { recordStatusPollMetrics } from "@/lib/metrics/instrumentation/api";
 import { getDualAuthContext } from "@/lib/middleware/auth-helpers";
 import { db } from "@/lib/db";
 import { workflowExecutionLogs, workflowExecutions } from "@/lib/db/schema";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 type NodeStatus = {
   nodeId: string;
   status: "pending" | "running" | "success" | "error" | "cancelled";
 };
 
-export async function GET(
+export const GET = withTracedApiHandler("GET /api/workflows/executions/:executionId/status", async function GET(
   request: Request,
   context: { params: Promise<{ executionId: string }> }
 ) {
@@ -164,4 +165,4 @@ export async function GET(
       { status: 500 }
     );
   }
-}
+});

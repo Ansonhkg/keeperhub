@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import type { JSX } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toChecksumAddress } from "@/lib/address-utils";
@@ -834,6 +835,7 @@ export function WorkflowRuns({
   onRefreshRef,
   onStartRun,
 }: WorkflowRunsProps) {
+  const traceEnabled = process.env.NEXT_PUBLIC_KEEPERHUB_FEATURE_TRACE === "true";
   const [currentWorkflowId] = useAtom(currentWorkflowIdAtom);
   const [selectedExecutionId, setSelectedExecutionId] = useAtom(
     selectedExecutionIdAtom
@@ -1137,7 +1139,11 @@ export function WorkflowRuns({
 
   if (loading) {
     return (
-      <div data-ready={String(isReady)} data-testid="workflow-runs" className="flex items-center justify-center py-12">
+      <div
+        className="flex items-center justify-center py-12"
+        data-ready={String(isReady)}
+        data-testid="workflow-runs"
+      >
         <Spinner />
       </div>
     );
@@ -1145,7 +1151,11 @@ export function WorkflowRuns({
 
   if (executions.length === 0) {
     return (
-      <div data-ready={String(isReady)} data-testid="workflow-runs" className="flex flex-col items-center justify-center py-16">
+      <div
+        className="flex flex-col items-center justify-center py-16"
+        data-ready={String(isReady)}
+        data-testid="workflow-runs"
+      >
         <div className="mb-3 rounded-lg border border-dashed p-4">
           <Play className="h-6 w-6 text-muted-foreground" />
         </div>
@@ -1158,7 +1168,11 @@ export function WorkflowRuns({
   }
 
   return (
-    <div data-ready={String(isReady)} data-testid="workflow-runs" className="space-y-3">
+    <div
+      className="space-y-3"
+      data-ready={String(isReady)}
+      data-testid="workflow-runs"
+    >
       {executions.map((execution, index) => {
         const isExpanded = expandedRuns.has(execution.id);
         const isSelected = selectedExecutionId === execution.id;
@@ -1172,7 +1186,7 @@ export function WorkflowRuns({
         return (
           <div
             className={cn(
-              "overflow-hidden rounded-lg border bg-card transition-all",
+              "overflow-hidden rounded-lg border bg-card text-card-foreground shadow-xs transition-colors hover:bg-accent/25",
               isSelected &&
                 "ring-2 ring-primary ring-offset-2 ring-offset-background"
             )}
@@ -1180,7 +1194,7 @@ export function WorkflowRuns({
           >
             <div className="flex w-full items-center gap-3 p-4">
               <button
-                className="flex size-5 shrink-0 items-center justify-center rounded-full border-0 transition-colors hover:bg-muted"
+                className="flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-muted"
                 onClick={() => toggleRun(execution.id)}
                 type="button"
               >
@@ -1195,7 +1209,7 @@ export function WorkflowRuns({
               </button>
 
               <button
-                className="min-w-0 flex-1 text-left transition-colors hover:opacity-80"
+                className="min-w-0 flex-1 rounded-md text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 onClick={() => {
                   selectRun(execution.id);
                   toggleRun(execution.id);
@@ -1207,7 +1221,7 @@ export function WorkflowRuns({
                     Run #{executions.length - index}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 font-mono text-muted-foreground text-xs">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 font-mono text-muted-foreground text-xs">
                   <span>{getRelativeTime(execution.startedAt)}</span>
                   {execution.duration && (
                     <>
@@ -1231,17 +1245,29 @@ export function WorkflowRuns({
                 </div>
               </button>
 
-              <button
-                className="flex shrink-0 items-center justify-center rounded p-1 transition-colors hover:bg-muted"
+              <Button
+                className="shrink-0"
                 onClick={() => toggleRun(execution.id)}
+                size="icon-sm"
                 type="button"
+                variant="ghost"
               >
                 {isExpanded ? (
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 ) : (
                   <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 )}
-              </button>
+              </Button>
+              {traceEnabled ? (
+                <Button asChild className="shrink-0" size="sm" variant="outline">
+                  <Link
+                    href={`/diagnostics?runId=${encodeURIComponent(execution.id)}`}
+                  >
+                    <ExternalLink className="mr-2 h-3.5 w-3.5" />
+                    View trace
+                  </Link>
+                </Button>
+              ) : null}
             </div>
 
             {isExpanded && (

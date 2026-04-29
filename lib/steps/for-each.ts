@@ -20,7 +20,6 @@ type ForEachResult = {
   maxIterations: number;
 };
 
-// biome-ignore lint/suspicious/useAwait: workflow "use step" requires async
 export async function forEachStep(input: ForEachInput): Promise<ForEachResult> {
   "use step";
   return withStepLogging(input, () =>

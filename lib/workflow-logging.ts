@@ -112,6 +112,11 @@ export type LogWorkflowCompleteParams = {
   startTime: number;
 };
 
+export type LogWorkflowCompleteResult = {
+  status: "success" | "error";
+  error?: string;
+};
+
 const STEP_INCOMPLETE_ERROR = "Step did not record completion";
 
 /**
@@ -145,7 +150,7 @@ async function closeOrphanedRunningLogs(
  */
 export async function logWorkflowCompleteDb(
   params: LogWorkflowCompleteParams
-): Promise<void> {
+): Promise<LogWorkflowCompleteResult> {
   const duration = Date.now() - params.startTime;
 
   // KEEP-1549: Reconcile spurious SDK errors.
@@ -234,6 +239,8 @@ export async function logWorkflowCompleteDb(
         ne(workflowExecutions.status, "cancelled")
       )
     );
+
+  return { error: resolvedError, status: resolvedStatus };
 }
 
 // ============================================================================

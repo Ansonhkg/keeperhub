@@ -11,6 +11,7 @@ import { ErrorCategory, logUserError } from "@/lib/logging";
 import { resolveOrganizationId } from "@/lib/middleware/auth-helpers";
 import { getChainIdFromNetwork } from "@/lib/rpc/network-utils";
 import { getRpcProvider } from "@/lib/rpc/provider-factory";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "";
 
@@ -1284,93 +1285,96 @@ async function fetchAbiFromEtherscan(
   return { abi, isProxy: false };
 }
 
-export async function POST(request: Request) {
-  try {
-    const authCtx = await resolveOrganizationId(request);
-    if ("error" in authCtx) {
-      return NextResponse.json(
-        { error: authCtx.error },
-        { status: authCtx.status }
-      );
-    }
-
-    // Parse request body
-    const body = (await request.json().catch(() => ({}))) as {
-      contractAddress?: string;
-      network?: string;
-    };
-
-    console.log("[Etherscan] Request body:", body);
-
-    const { contractAddress, network } = body;
-
-    if (!contractAddress) {
-      console.log("[Etherscan] Missing contract address");
-      return NextResponse.json(
-        { error: "Contract address is required" },
-        { status: 400 }
-      );
-    }
-
-    if (!network) {
-      console.log("[Etherscan] Missing network");
-      return NextResponse.json(
-        { error: "Network is required" },
-        { status: 400 }
-      );
-    }
-
-    if (!ethers.isAddress(contractAddress)) {
-      return NextResponse.json(
-        { error: `Invalid contract address: ${contractAddress}` },
-        { status: 400 }
-      );
-    }
-
-    const checksummedAddress = toChecksumAddress(contractAddress);
-
-    const chainId = getChainIdFromNetwork(network);
+export const POST = withTracedApiHandler(
+  "POST /api/web3/fetch-abi",
+  async function POST(request: Request) {
     try {
-      const rpcManager = await getRpcProvider({ chainId });
-      const code = await rpcManager.executeWithFailover((provider) =>
-        provider.getCode(checksummedAddress)
-      );
-      if (!code || code === "0x") {
+      const authCtx = await resolveOrganizationId(request);
+      if ("error" in authCtx) {
         return NextResponse.json(
-          {
-            error:
-              "Address has no contract code (EOA or not deployed on this network).",
-          },
+          { error: authCtx.error },
+          { status: authCtx.status }
+        );
+      }
+
+      // Parse request body
+      const body = (await request.json().catch(() => ({}))) as {
+        contractAddress?: string;
+        network?: string;
+      };
+
+      console.log("[Etherscan] Request body:", body);
+
+      const { contractAddress, network } = body;
+
+      if (!contractAddress) {
+        console.log("[Etherscan] Missing contract address");
+        return NextResponse.json(
+          { error: "Contract address is required" },
           { status: 400 }
         );
       }
-    } catch {
-      // Chain not found/enabled -- skip code check, proceed to Etherscan
+
+      if (!network) {
+        console.log("[Etherscan] Missing network");
+        return NextResponse.json(
+          { error: "Network is required" },
+          { status: 400 }
+        );
+      }
+
+      if (!ethers.isAddress(contractAddress)) {
+        return NextResponse.json(
+          { error: `Invalid contract address: ${contractAddress}` },
+          { status: 400 }
+        );
+      }
+
+      const checksummedAddress = toChecksumAddress(contractAddress);
+
+      const chainId = getChainIdFromNetwork(network);
+      try {
+        const rpcManager = await getRpcProvider({ chainId });
+        const code = await rpcManager.executeWithFailover((provider) =>
+          provider.getCode(checksummedAddress)
+        );
+        if (!code || code === "0x") {
+          return NextResponse.json(
+            {
+              error:
+                "Address has no contract code (EOA or not deployed on this network).",
+            },
+            { status: 400 }
+          );
+        }
+      } catch {
+        // Chain not found/enabled -- skip code check, proceed to Etherscan
+      }
+
+      console.log("[Etherscan] Fetching ABI for:", {
+        contractAddress: checksummedAddress,
+        network,
+      });
+
+      // Fetch ABI from Etherscan with proxy detection
+      const result = await fetchAbiFromEtherscan(checksummedAddress, network);
+
+      return NextResponse.json({
+        success: true,
+        abi: result.abi,
+        isProxy: result.isProxy,
+        isDiamond: result.isDiamond,
+        implementationAddress: result.implementationAddress,
+        implementationAbi: result.implementationAbi,
+        proxyAddress: result.proxyAddress,
+        proxyAbi: result.proxyAbi,
+        facets: result.facets,
+        diamondProxyAbi: result.diamondProxyAbi,
+        diamondDirectAbi: result.diamondDirectAbi,
+        warning: result.warning,
+      });
+    } catch (error) {
+      return apiError(error, "Failed to fetch ABI from Etherscan");
     }
-
-    console.log("[Etherscan] Fetching ABI for:", {
-      contractAddress: checksummedAddress,
-      network,
-    });
-
-    // Fetch ABI from Etherscan with proxy detection
-    const result = await fetchAbiFromEtherscan(checksummedAddress, network);
-
-    return NextResponse.json({
-      success: true,
-      abi: result.abi,
-      isProxy: result.isProxy,
-      isDiamond: result.isDiamond,
-      implementationAddress: result.implementationAddress,
-      implementationAbi: result.implementationAbi,
-      proxyAddress: result.proxyAddress,
-      proxyAbi: result.proxyAbi,
-      facets: result.facets,
-      diamondProxyAbi: result.diamondProxyAbi,
-      diamondDirectAbi: result.diamondDirectAbi,
-      warning: result.warning,
-    });
-  } catch (error) {
-    return apiError(error, "Failed to fetch ABI from Etherscan");
   }
-}
+);

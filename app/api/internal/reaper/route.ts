@@ -5,6 +5,7 @@ import { workflowExecutionLogs, workflowExecutions } from "@/lib/db/schema";
 import { walletLocks } from "@/lib/db/schema-extensions";
 import { authenticateInternalService } from "@/lib/internal-service-auth";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 const DEFAULT_THRESHOLD_MINUTES = 30;
 
@@ -25,103 +26,106 @@ function getThresholdMinutes(): number {
  *
  * Intended to be called by an external cron job (K8s CronJob).
  */
-export async function GET(request: Request): Promise<NextResponse> {
-  const auth = authenticateInternalService(request);
-  if (!auth.authenticated) {
-    return NextResponse.json(
-      { error: auth.error ?? "Unauthorized" },
-      { status: 401 }
-    );
-  }
-
-  try {
-    const thresholdMinutes = getThresholdMinutes();
-    const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000);
-
-    // Find execution IDs that have recent step activity (should NOT be reaped)
-    const activeExecutionIds = await db
-      .select({
-        executionId: workflowExecutionLogs.executionId,
-      })
-      .from(workflowExecutionLogs)
-      .where(gt(workflowExecutionLogs.completedAt, cutoff))
-      .groupBy(workflowExecutionLogs.executionId);
-
-    const excludeIds = activeExecutionIds.map((row) => row.executionId);
-
-    // Bulk update all stale executions in a single query, excluding those with recent activity
-    const staleConditions = and(
-      eq(workflowExecutions.status, "running"),
-      lt(workflowExecutions.startedAt, cutoff),
-      excludeIds.length > 0
-        ? notInArray(workflowExecutions.id, excludeIds)
-        : undefined
-    );
-
-    const reaped = await db
-      .update(workflowExecutions)
-      .set({
-        status: "error",
-        error: `Execution timed out: no activity for ${thresholdMinutes} minutes`,
-        completedAt: new Date(),
-        duration: sql`ROUND(EXTRACT(EPOCH FROM (NOW() - ${workflowExecutions.startedAt})) * 1000)`,
-      })
-      .where(staleConditions)
-      .returning({ id: workflowExecutions.id });
-
-    const reapedIds = reaped.map((row) => row.id);
-
-    // KEEP-333: Close orphaned 'running' step logs for reaped executions so
-    // the UI doesn't show stuck spinners after the workflow has been marked
-    // as timed out.
-    if (reapedIds.length > 0) {
-      await db
-        .update(workflowExecutionLogs)
-        .set({
-          status: "error",
-          error: "Step did not record completion",
-          completedAt: new Date(),
-        })
-        .where(
-          and(
-            inArray(workflowExecutionLogs.executionId, reapedIds),
-            eq(workflowExecutionLogs.status, "running")
-          )
-        );
-
-      // KEEP-344: Release any nonce locks still held by reaped executions.
-      // The wallet_locks TTL would clear them on its own, but releasing them
-      // here unwedges affected wallets immediately when reaper runs, instead
-      // of leaving the user blocked until expires_at.
-      await db
-        .update(walletLocks)
-        .set({
-          lockedBy: null,
-          lockedAt: null,
-          expiresAt: sql`NOW()`,
-        })
-        .where(inArray(walletLocks.lockedBy, reapedIds));
+export const GET = withTracedApiHandler(
+  "GET /api/internal/reaper",
+  async function GET(request: Request): Promise<NextResponse> {
+    const auth = authenticateInternalService(request);
+    if (!auth.authenticated) {
+      return NextResponse.json(
+        { error: auth.error ?? "Unauthorized" },
+        { status: 401 }
+      );
     }
 
-    return NextResponse.json({
-      reapedCount: reapedIds.length,
-      reapedIds,
-    });
-  } catch (error) {
-    logSystemError(
-      ErrorCategory.DATABASE,
-      "Failed to reap stale executions",
-      error,
-      { endpoint: "/api/internal/reaper", operation: "get" }
-    );
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to reap stale executions",
-      },
-      { status: 500 }
-    );
+    try {
+      const thresholdMinutes = getThresholdMinutes();
+      const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000);
+
+      // Find execution IDs that have recent step activity (should NOT be reaped)
+      const activeExecutionIds = await db
+        .select({
+          executionId: workflowExecutionLogs.executionId,
+        })
+        .from(workflowExecutionLogs)
+        .where(gt(workflowExecutionLogs.completedAt, cutoff))
+        .groupBy(workflowExecutionLogs.executionId);
+
+      const excludeIds = activeExecutionIds.map((row) => row.executionId);
+
+      // Bulk update all stale executions in a single query, excluding those with recent activity
+      const staleConditions = and(
+        eq(workflowExecutions.status, "running"),
+        lt(workflowExecutions.startedAt, cutoff),
+        excludeIds.length > 0
+          ? notInArray(workflowExecutions.id, excludeIds)
+          : undefined
+      );
+
+      const reaped = await db
+        .update(workflowExecutions)
+        .set({
+          status: "error",
+          error: `Execution timed out: no activity for ${thresholdMinutes} minutes`,
+          completedAt: new Date(),
+          duration: sql`ROUND(EXTRACT(EPOCH FROM (NOW() - ${workflowExecutions.startedAt})) * 1000)`,
+        })
+        .where(staleConditions)
+        .returning({ id: workflowExecutions.id });
+
+      const reapedIds = reaped.map((row) => row.id);
+
+      // KEEP-333: Close orphaned 'running' step logs for reaped executions so
+      // the UI doesn't show stuck spinners after the workflow has been marked
+      // as timed out.
+      if (reapedIds.length > 0) {
+        await db
+          .update(workflowExecutionLogs)
+          .set({
+            status: "error",
+            error: "Step did not record completion",
+            completedAt: new Date(),
+          })
+          .where(
+            and(
+              inArray(workflowExecutionLogs.executionId, reapedIds),
+              eq(workflowExecutionLogs.status, "running")
+            )
+          );
+
+        // KEEP-344: Release any nonce locks still held by reaped executions.
+        // The wallet_locks TTL would clear them on its own, but releasing them
+        // here unwedges affected wallets immediately when reaper runs, instead
+        // of leaving the user blocked until expires_at.
+        await db
+          .update(walletLocks)
+          .set({
+            lockedBy: null,
+            lockedAt: null,
+            expiresAt: sql`NOW()`,
+          })
+          .where(inArray(walletLocks.lockedBy, reapedIds));
+      }
+
+      return NextResponse.json({
+        reapedCount: reapedIds.length,
+        reapedIds,
+      });
+    } catch (error) {
+      logSystemError(
+        ErrorCategory.DATABASE,
+        "Failed to reap stale executions",
+        error,
+        { endpoint: "/api/internal/reaper", operation: "get" }
+      );
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to reap stale executions",
+        },
+        { status: 500 }
+      );
+    }
   }
-}
+);

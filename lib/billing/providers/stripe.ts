@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
+import { withServerTraceSpan } from "@/lib/trace/server-span";
 import type {
   BillingDetails,
   BillingProvider,
@@ -24,6 +25,18 @@ function getStripe(): Stripe {
     );
   }
   return stripe;
+}
+
+function withStripeSpan<T>(operation: string, handler: () => T | Promise<T>) {
+  return withServerTraceSpan(
+    {
+      attributes: { operation, provider: "stripe" },
+      kind: "billing",
+      label: `Stripe ${operation}`,
+      step: `billing.stripe.${operation}`,
+    },
+    handler
+  );
 }
 
 function isStripeNotFound(error: unknown): boolean {
@@ -222,29 +235,33 @@ export class StripeBillingProvider implements BillingProvider {
   async createCustomer(
     params: CreateCustomerParams
   ): Promise<{ customerId: string }> {
-    const customer = await getStripe().customers.create({
-      email: params.email,
-      metadata: {
-        organizationId: params.organizationId,
-        userId: params.userId,
-      },
-    });
+    const customer = await withStripeSpan("customers.create", () =>
+      getStripe().customers.create({
+        email: params.email,
+        metadata: {
+          organizationId: params.organizationId,
+          userId: params.userId,
+        },
+      })
+    );
     return { customerId: customer.id };
   }
 
   async createCheckoutSession(
     params: CreateCheckoutParams
   ): Promise<{ url: string }> {
-    const session = await getStripe().checkout.sessions.create({
-      customer: params.customerId,
-      mode: "subscription",
-      line_items: [{ price: params.priceId, quantity: 1 }],
-      success_url: params.successUrl,
-      cancel_url: params.cancelUrl,
-      metadata: {
-        organizationId: params.organizationId,
-      },
-    });
+    const session = await withStripeSpan("checkout.sessions.create", () =>
+      getStripe().checkout.sessions.create({
+        cancel_url: params.cancelUrl,
+        customer: params.customerId,
+        line_items: [{ price: params.priceId, quantity: 1 }],
+        metadata: {
+          organizationId: params.organizationId,
+        },
+        mode: "subscription",
+        success_url: params.successUrl,
+      })
+    );
 
     if (!session.url) {
       throw new Error("Stripe checkout session did not return a URL");
@@ -257,18 +274,22 @@ export class StripeBillingProvider implements BillingProvider {
     customerId: string,
     returnUrl: string
   ): Promise<{ url: string }> {
-    const session = await getStripe().billingPortal.sessions.create({
-      customer: customerId,
-      return_url: returnUrl,
-    });
+    const session = await withStripeSpan("billingPortal.sessions.create", () =>
+      getStripe().billingPortal.sessions.create({
+        customer: customerId,
+        return_url: returnUrl,
+      })
+    );
     return { url: session.url };
   }
 
   async getBillingDetails(customerId: string): Promise<BillingDetails> {
     const s = getStripe();
-    const customer = await s.customers.retrieve(customerId, {
-      expand: ["invoice_settings.default_payment_method"],
-    });
+    const customer = await withStripeSpan("customers.retrieve", () =>
+      s.customers.retrieve(customerId, {
+        expand: ["invoice_settings.default_payment_method"],
+      })
+    );
 
     if (customer.deleted) {
       return { paymentMethod: null, billingEmail: null };
@@ -335,7 +356,6 @@ export class StripeBillingProvider implements BillingProvider {
     };
   }
 
-  // biome-ignore lint/suspicious/useAwait: must be async to satisfy BillingProvider interface contract
   async verifyWebhook(
     body: string,
     signature: string
@@ -395,7 +415,9 @@ export class StripeBillingProvider implements BillingProvider {
       listParams.starting_after = params.startingAfter;
     }
 
-    const list = await getStripe().invoices.list(listParams);
+    const list = await withStripeSpan("invoices.list", () =>
+      getStripe().invoices.list(listParams)
+    );
 
     const invoices: InvoiceItem[] = list.data.map(mapStripeInvoice);
 
@@ -433,9 +455,13 @@ export class StripeBillingProvider implements BillingProvider {
   async cancelSubscription(
     subscriptionId: string
   ): Promise<{ cancelAtPeriodEnd: boolean; periodEnd: Date | null }> {
-    const updated = await getStripe().subscriptions.update(subscriptionId, {
-      cancel_at_period_end: true,
-    });
+    const updated = await withStripeSpan(
+      "subscriptions.cancelAtPeriodEnd",
+      () =>
+        getStripe().subscriptions.update(subscriptionId, {
+          cancel_at_period_end: true,
+        })
+    );
     const currentPeriodEnd = updated.items.data[0]?.current_period_end;
     const periodEnd = currentPeriodEnd
       ? new Date(currentPeriodEnd * 1000)
@@ -529,20 +555,24 @@ export class StripeBillingProvider implements BillingProvider {
   async createInvoiceItem(
     params: CreateInvoiceItemParams
   ): Promise<CreateInvoiceItemResult> {
-    const item = await getStripe().invoiceItems.create({
-      customer: params.customerId,
-      amount: params.amount,
-      currency: params.currency,
-      description: params.description,
-      metadata: params.metadata,
-    });
+    const item = await withStripeSpan("invoiceItems.create", () =>
+      getStripe().invoiceItems.create({
+        amount: params.amount,
+        currency: params.currency,
+        customer: params.customerId,
+        description: params.description,
+        metadata: params.metadata,
+      })
+    );
     return { invoiceItemId: item.id };
   }
 
   async getInvoiceStatus(
     invoiceId: string
   ): Promise<{ status: string; paid: boolean }> {
-    const invoice = await getStripe().invoices.retrieve(invoiceId);
+    const invoice = await withStripeSpan("invoices.retrieve", () =>
+      getStripe().invoices.retrieve(invoiceId)
+    );
     return {
       status: invoice.status ?? "draft",
       paid: invoice.status === "paid",

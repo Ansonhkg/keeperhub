@@ -5,6 +5,7 @@ import ERC20_ABI from "@/lib/contracts/abis/erc20.json";
 import { resolveOrganizationId } from "@/lib/middleware/auth-helpers";
 import { getOrganizationWalletAddress } from "@/lib/para/wallet-helpers";
 import { getRpcProvider } from "@/lib/rpc/provider-factory";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import { getChainGasDefaults } from "@/lib/web3/gas-defaults";
 
 type EstimateConfig = {
@@ -230,52 +231,55 @@ async function validateRequest(request: Request): Promise<
  * Returns a gas estimate for a given action configuration.
  * Requires authenticated session (uses org wallet address as `from`).
  */
-export async function POST(request: Request): Promise<NextResponse> {
-  try {
-    const validated = await validateRequest(request);
-    if (validated instanceof NextResponse) {
-      return validated;
-    }
-
-    const { chainId, actionSlug, config, activeOrgId } = validated;
-
-    let walletAddress: string;
+export const POST = withTracedApiHandler(
+  "POST /api/gas/estimate",
+  async function POST(request: Request): Promise<NextResponse> {
     try {
-      walletAddress = await getOrganizationWalletAddress(activeOrgId);
-    } catch {
-      return badRequest("No wallet configured. Create a wallet first.");
-    }
-
-    const rpcManager = await getRpcProvider({ chainId });
-
-    const result = await rpcManager.executeWithFailover(async (provider) => {
-      switch (actionSlug) {
-        case "transfer-funds":
-          return await estimateTransferFunds(config, provider, walletAddress);
-        case "transfer-token":
-          return await estimateTransferToken(config, provider, walletAddress);
-        case "write-contract":
-          return await estimateWriteContract(config, provider, walletAddress);
-        default:
-          return badRequest(`Unsupported action: ${actionSlug as string}`);
+      const validated = await validateRequest(request);
+      if (validated instanceof NextResponse) {
+        return validated;
       }
-    });
 
-    // If the estimator returned a NextResponse, it's an error
-    if (result instanceof NextResponse) {
-      return result;
+      const { chainId, actionSlug, config, activeOrgId } = validated;
+
+      let walletAddress: string;
+      try {
+        walletAddress = await getOrganizationWalletAddress(activeOrgId);
+      } catch {
+        return badRequest("No wallet configured. Create a wallet first.");
+      }
+
+      const rpcManager = await getRpcProvider({ chainId });
+
+      const result = await rpcManager.executeWithFailover(async (provider) => {
+        switch (actionSlug) {
+          case "transfer-funds":
+            return await estimateTransferFunds(config, provider, walletAddress);
+          case "transfer-token":
+            return await estimateTransferToken(config, provider, walletAddress);
+          case "write-contract":
+            return await estimateWriteContract(config, provider, walletAddress);
+          default:
+            return badRequest(`Unsupported action: ${actionSlug as string}`);
+        }
+      });
+
+      // If the estimator returned a NextResponse, it's an error
+      if (result instanceof NextResponse) {
+        return result;
+      }
+
+      const chainDefaults = getChainGasDefaults(chainId);
+
+      return NextResponse.json({
+        estimatedGas: result.toString(),
+        chainDefaults: {
+          multiplier: chainDefaults.multiplier,
+          conservative: chainDefaults.conservative,
+        },
+      });
+    } catch (error) {
+      return apiError(error, "Failed to estimate gas");
     }
-
-    const chainDefaults = getChainGasDefaults(chainId);
-
-    return NextResponse.json({
-      estimatedGas: result.toString(),
-      chainDefaults: {
-        multiplier: chainDefaults.multiplier,
-        conservative: chainDefaults.conservative,
-      },
-    });
-  } catch (error) {
-    return apiError(error, "Failed to estimate gas");
   }
-}
+);

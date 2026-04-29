@@ -67,7 +67,6 @@ export type TransferFundsResult =
  * Shared between the web3 transfer-funds step and the direct execution API.
  * When _context.organizationId is provided, skips workflowExecutions lookup.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Transfer handler with sponsorship attempt + fallback + validation
 export async function transferFundsCore(
   input: TransferFundsCoreInput
 ): Promise<TransferFundsResult> {

@@ -19,7 +19,6 @@ type CollectResult = {
   count: number;
 };
 
-// biome-ignore lint/suspicious/useAwait: workflow "use step" requires async
 export async function collectStep(input: CollectInput): Promise<CollectResult> {
   "use step";
   return withStepLogging(input, () =>

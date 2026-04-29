@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getEarningsSummary } from "@/lib/earnings/queries";
 import { requireOrganization } from "@/lib/middleware/require-org";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 10;
@@ -28,8 +29,9 @@ function parseIntParam(
   return parsed;
 }
 
-export const GET = requireOrganization(
-  async (req: NextRequest, context): Promise<Response> => {
+export const GET = withTracedApiHandler(
+  "GET /api/earnings",
+  requireOrganization(async (req: NextRequest, context): Promise<Response> => {
     const organizationId = context.organization?.id;
     if (!organizationId) {
       return NextResponse.json(
@@ -55,5 +57,5 @@ export const GET = requireOrganization(
     const summary = await getEarningsSummary(organizationId, page, pageSize);
 
     return NextResponse.json(summary);
-  }
+  })
 );

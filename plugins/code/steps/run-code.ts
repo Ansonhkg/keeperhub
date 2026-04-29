@@ -112,7 +112,6 @@ function parseChildOutput(stdout: string): ChildOutcome {
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: single cohesive spawner with timeout + stream aggregation + graceful teardown
 async function runInChild(
   code: string,
   timeoutMs: number
@@ -319,7 +318,6 @@ async function stepHandler(input: RunCodeCoreInput): Promise<RunCodeResult> {
   return runLocal(input, clampedSeconds);
 }
 
-// biome-ignore lint/suspicious/useAwait: "use step" directive requires async
 export async function runCodeStep(input: RunCodeInput): Promise<RunCodeResult> {
   "use step";
 

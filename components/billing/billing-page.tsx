@@ -134,7 +134,6 @@ export function BillingPage(): React.ReactElement {
     }
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: orgId intentionally triggers re-fetch on org switch
   useEffect(() => {
     setCurrentPlan("free");
     setCurrentTier(null);

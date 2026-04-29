@@ -4,8 +4,9 @@ import { db } from "@/lib/db";
 import { workflows } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { getOrgContext } from "@/lib/middleware/org-context";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
-export async function POST(
+export const POST = withTracedApiHandler("POST /api/workflows/:workflowId/claim", async function POST(
   _request: Request,
   context: { params: Promise<{ workflowId: string }> }
 ) {
@@ -62,4 +63,4 @@ export async function POST(
       { status: 500 }
     );
   }
-}
+});

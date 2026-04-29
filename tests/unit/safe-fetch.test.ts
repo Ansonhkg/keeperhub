@@ -128,7 +128,6 @@ describe("safeFetch (enforce mode)", () => {
   afterEach(() => {
     if (originalEnforce === undefined) {
       process.env.SAFE_FETCH_ENFORCE = undefined;
-      // biome-ignore lint/performance/noDelete: ensure env var is fully removed
       delete process.env.SAFE_FETCH_ENFORCE;
     } else {
       process.env.SAFE_FETCH_ENFORCE = originalEnforce;
@@ -211,7 +210,6 @@ describe("safeFetch (shadow mode)", () => {
   const originalEnforce = process.env.SAFE_FETCH_ENFORCE;
 
   beforeEach(() => {
-    // biome-ignore lint/performance/noDelete: default shadow requires unset
     delete process.env.SAFE_FETCH_ENFORCE;
     incrementCounter.mockClear();
     captureException.mockClear();
@@ -219,7 +217,6 @@ describe("safeFetch (shadow mode)", () => {
 
   afterEach(() => {
     if (originalEnforce === undefined) {
-      // biome-ignore lint/performance/noDelete: restore unset state
       delete process.env.SAFE_FETCH_ENFORCE;
     } else {
       process.env.SAFE_FETCH_ENFORCE = originalEnforce;

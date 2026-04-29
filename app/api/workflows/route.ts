@@ -4,8 +4,9 @@ import { db } from "@/lib/db";
 import { workflows } from "@/lib/db/schema";
 import { ErrorCategory, logSystemError } from "@/lib/logging";
 import { getDualAuthContext } from "@/lib/middleware/auth-helpers";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
-export async function GET(request: Request): Promise<NextResponse> {
+export const GET = withTracedApiHandler("GET /api/workflows", async function GET(request: Request): Promise<NextResponse> {
   try {
     const authContext = await getDualAuthContext(request, { required: false });
     if ("error" in authContext) {
@@ -66,4 +67,4 @@ export async function GET(request: Request): Promise<NextResponse> {
       { status: 500 }
     );
   }
-}
+});
