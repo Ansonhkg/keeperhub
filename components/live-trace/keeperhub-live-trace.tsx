@@ -809,10 +809,22 @@ function copyMinimalTraceTree(run: DiagnosticRun) {
   if (run.spans.length > 120) {
     lines.push(`... ${run.spans.length - 120} more spans omitted`);
   }
+  if (run.links.length) {
+    lines.push("Links:");
+    for (const link of run.links.slice(0, 40)) {
+      lines.push(`- ${link.spanId} -> ${link.linkedSpanId} (${link.type})`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function copyTraceWithErrors(run: DiagnosticRun) {
+  const lines = [copyMinimalTraceTree(run)];
   const errorSpans = run.spans.filter(
     (span) => span.status === "error" || span.error
   );
   if (errorSpans.length) {
+    lines.push("");
     lines.push("Errors:");
     for (const span of errorSpans) {
       const errorEvent = run.events.find(
@@ -826,13 +838,22 @@ function copyMinimalTraceTree(run: DiagnosticRun) {
       appendCopyPayload(lines, "response", span.output ?? errorEvent?.payload);
     }
   }
-  if (run.links.length) {
-    lines.push("Links:");
-    for (const link of run.links.slice(0, 40)) {
-      lines.push(`- ${link.spanId} -> ${link.linkedSpanId} (${link.type})`);
-    }
-  }
   return lines.join("\n");
+}
+
+function copyDiagnosticPrompt(run: DiagnosticRun) {
+  return [
+    "You are given an error trace and possibly some related code.",
+    "",
+    "Your task is NOT to immediately fix or resolve the issue.",
+    "",
+    "Instead, analyze the error trace carefully, identify the root cause (or most likely causes), and explain what is happening and why the error occurs.",
+    "",
+    "DO NOT provide a full implementation or final fixed code.",
+    "",
+    "Trace:",
+    copyTraceWithErrors(run),
+  ].join("\n");
 }
 
 export function KeeperHubLiveTrace({ enabled }: KeeperHubLiveTraceProps) {
@@ -1813,6 +1834,18 @@ export function KeeperHubLiveTrace({ enabled }: KeeperHubLiveTraceProps) {
     }
   }
 
+  async function copyPrompt() {
+    if (!displayedRun) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(copyDiagnosticPrompt(displayedRun));
+      toast.success("Diagnostic prompt copied");
+    } catch {
+      toast.error("Could not copy prompt");
+    }
+  }
+
   function renderTraceTimelineTrack() {
     if (!(displayedRun && waterfall && widgetState.showDateRangeTrack)) {
       return null;
@@ -2040,6 +2073,11 @@ export function KeeperHubLiveTrace({ enabled }: KeeperHubLiveTraceProps) {
             onClick: () => void copyTrace(),
           },
           {
+            disabled: !displayedRun,
+            label: "Copy Prompt",
+            onClick: () => void copyPrompt(),
+          },
+          {
             label: "Close",
             onClick: () => setDetailModalOpen(false),
           },
@@ -2131,6 +2169,17 @@ export function KeeperHubLiveTrace({ enabled }: KeeperHubLiveTraceProps) {
             >
               <Clipboard className="h-4 w-4" />
               Copy Trace
+            </Button>
+            <Button
+              className="h-8 gap-2 px-3"
+              disabled={!displayedRun}
+              onClick={() => void copyPrompt()}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <Clipboard className="h-4 w-4" />
+              Copy Prompt
             </Button>
             <Button
               className="h-8 w-8"
