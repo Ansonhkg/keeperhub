@@ -34,6 +34,28 @@ describe("agentic builder projection graph", () => {
     expect(rendered.edges.map((item) => item.id)).toEqual(["preview_edge_1"]);
     expect(isBuilderPreviewNode(rendered.nodes[1])).toBe(true);
     expect(isBuilderPreviewEdge(rendered.edges[0])).toBe(true);
+    expect(rendered.nodes[1]?.draggable).toBe(false);
+    expect(rendered.nodes[1]?.selectable).toBe(false);
+    expect(rendered.nodes[1]?.connectable).toBe(false);
+    expect(rendered.edges[0]?.selectable).toBe(false);
+  });
+
+  it("marks preview branches as highlighted from projection metadata", () => {
+    const projection = projectionWithBranch(
+      branch({
+        previewNodes: [previewNode("preview_action_1")],
+        previewEdges: [previewEdge("preview_edge_1", "trigger_1", "preview_action_1")],
+      })
+    );
+
+    const rendered = projectWorkflowGraph(graph([], []), projection, {
+      optionId: "option_1",
+    });
+
+    expect(
+      (rendered.nodes[0]?.data as Record<string, unknown>).builderHighlighted
+    ).toBe(true);
+    expect(rendered.edges[0]?.data?.builderHighlighted).toBe(true);
   });
 
   it("returns the same graph when no projection is active", () => {

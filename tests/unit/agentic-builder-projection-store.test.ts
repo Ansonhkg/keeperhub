@@ -10,10 +10,12 @@ import {
   answerBuilderProjectionQuestionAtom,
   builderProjectionAtom,
   clearBuilderProjectionAtom,
+  clearBuilderProjectionHighlightAtom,
   rejectBuilderProjectionOptionAtom,
   renderedWorkflowEdgesAtom,
   renderedWorkflowNodesAtom,
   selectBuilderProjectionOptionAtom,
+  setBuilderProjectionHighlightAtom,
   setBuilderProjectionAtom,
 } from "@/lib/agentic-builder/projection/store";
 import {
@@ -64,6 +66,30 @@ describe("agentic builder projection store", () => {
       questions: [{ id: "question_1", answer: "5%" }],
     });
     expect(store.get(nodesAtom).map((item) => item.id)).toEqual(["trigger_1"]);
+  });
+
+  it("projects hover and focus highlight state onto preview graph", () => {
+    const store = createStore();
+    store.set(setBuilderProjectionAtom, projection());
+
+    store.set(setBuilderProjectionHighlightAtom, { optionId: "option_1" });
+
+    expect(
+      (
+        store.get(renderedWorkflowNodesAtom)[0]?.data as Record<string, unknown>
+      ).builderHighlighted
+    ).toBe(true);
+    expect(
+      store.get(renderedWorkflowEdgesAtom)[0]?.data?.builderHighlighted
+    ).toBe(true);
+
+    store.set(clearBuilderProjectionHighlightAtom);
+
+    expect(
+      (
+        store.get(renderedWorkflowNodesAtom)[0]?.data as Record<string, unknown>
+      ).builderHighlighted
+    ).toBe(false);
   });
 
   it("rejects option branches and clears projection state", () => {

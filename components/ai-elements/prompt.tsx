@@ -5,9 +5,18 @@ import { useAtom, useAtomValue } from "jotai";
 import { ArrowUp } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { DecisionTray } from "@/components/agentic-builder/decision-tray";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api-client";
+import {
+  answerBuilderProjectionQuestionAtom,
+  builderProjectionAtom,
+  clearBuilderProjectionHighlightAtom,
+  rejectBuilderProjectionOptionAtom,
+  selectBuilderProjectionOptionAtom,
+  setBuilderProjectionHighlightAtom,
+} from "@/lib/agentic-builder/projection/store";
 import { dedupeEdges } from "@/lib/workflow/editor/edge-helpers";
 import {
   currentWorkflowIdAtom,
@@ -25,6 +34,12 @@ type AIPromptProps = {
 
 export function AIPrompt({ workflowId, onWorkflowCreated }: AIPromptProps) {
   const [isGenerating, setIsGenerating] = useAtom(isGeneratingAtom);
+  const builderProjection = useAtomValue(builderProjectionAtom);
+  const [, setBuilderHighlight] = useAtom(setBuilderProjectionHighlightAtom);
+  const [, clearBuilderHighlight] = useAtom(clearBuilderProjectionHighlightAtom);
+  const [, selectBuilderOption] = useAtom(selectBuilderProjectionOptionAtom);
+  const [, rejectBuilderOption] = useAtom(rejectBuilderProjectionOptionAtom);
+  const [, answerBuilderQuestion] = useAtom(answerBuilderProjectionQuestionAtom);
   const [prompt, setPrompt] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
@@ -302,6 +317,18 @@ export function AIPrompt({ workflowId, onWorkflowCreated }: AIPromptProps) {
           transition: "width 150ms ease-out",
         }}
       >
+        <DecisionTray
+          isPlanning={isGenerating}
+          onAnswerQuestion={answerBuilderQuestion}
+          onClearHighlight={clearBuilderHighlight}
+          onHighlightBranch={(input) => setBuilderHighlight(input)}
+          onRejectOption={rejectBuilderOption}
+          onRequestNativeFeature={() => {
+            toast.info("Native feature request noted");
+          }}
+          onSelectOption={selectBuilderOption}
+          projection={builderProjection}
+        />
         <form
           aria-busy={isGenerating}
           aria-label="KeeperHub workflow prompt"
@@ -395,4 +422,3 @@ export function AIPrompt({ workflowId, onWorkflowCreated }: AIPromptProps) {
     </>
   );
 }
-

@@ -1,5 +1,6 @@
 import { atom } from "jotai";
 import type {
+  BuilderProjectionHighlight,
   BuilderProjection,
   BuilderProjectionQuestion,
   WorkflowGraph,
@@ -8,11 +9,13 @@ import { projectWorkflowGraph } from "./graph";
 import { edgesAtom, nodesAtom } from "@/lib/workflow/store";
 
 export const builderProjectionAtom = atom<BuilderProjection | null>(null);
+export const builderProjectionHighlightAtom = atom<BuilderProjectionHighlight>({});
 
 export const renderedWorkflowGraphAtom = atom<WorkflowGraph>((get) =>
   projectWorkflowGraph(
     { nodes: get(nodesAtom), edges: get(edgesAtom) },
-    get(builderProjectionAtom)
+    get(builderProjectionAtom),
+    get(builderProjectionHighlightAtom)
   )
 );
 
@@ -28,11 +31,24 @@ export const setBuilderProjectionAtom = atom(
   null,
   (_get, set, projection: BuilderProjection) => {
     set(builderProjectionAtom, projection);
+    set(builderProjectionHighlightAtom, {});
   }
 );
 
 export const clearBuilderProjectionAtom = atom(null, (_get, set) => {
   set(builderProjectionAtom, null);
+  set(builderProjectionHighlightAtom, {});
+});
+
+export const setBuilderProjectionHighlightAtom = atom(
+  null,
+  (_get, set, highlight: BuilderProjectionHighlight) => {
+    set(builderProjectionHighlightAtom, highlight);
+  }
+);
+
+export const clearBuilderProjectionHighlightAtom = atom(null, (_get, set) => {
+  set(builderProjectionHighlightAtom, {});
 });
 
 export const answerBuilderProjectionQuestionAtom = atom(
@@ -67,6 +83,7 @@ export const selectBuilderProjectionOptionAtom = atom(
       selectedOptionId: optionId,
       status: "accepted",
     });
+    set(builderProjectionHighlightAtom, {});
   }
 );
 
@@ -84,6 +101,7 @@ export const rejectBuilderProjectionOptionAtom = atom(
       branches: projection.branches.filter((branch) => branch.optionId !== optionId),
       status: "rejected",
     });
+    set(builderProjectionHighlightAtom, {});
   }
 );
 

@@ -264,6 +264,21 @@ type ActionNodeProps = NodeProps & {
   id: string;
 };
 
+function getPreviewMeta(data: WorkflowNodeData): {
+  isPreview: boolean;
+  highlighted: boolean;
+} {
+  const meta = data as WorkflowNodeData & {
+    builderPreview?: boolean;
+    builderHighlighted?: boolean;
+  };
+
+  return {
+    isPreview: meta.builderPreview === true,
+    highlighted: meta.builderHighlighted === true,
+  };
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex UI logic with multiple conditions including disabled state
 export const ActionNode = memo(({ data, selected, id }: ActionNodeProps) => {
   const selectedExecutionId = useAtomValue(selectedExecutionIdAtom);
@@ -276,6 +291,7 @@ export const ActionNode = memo(({ data, selected, id }: ActionNodeProps) => {
     return null;
   }
 
+  const preview = getPreviewMeta(data);
   const actionType = (data.config?.actionType as string) || "";
   const status = data.status;
 
@@ -294,12 +310,19 @@ export const ActionNode = memo(({ data, selected, id }: ActionNodeProps) => {
       <Node
         className={cn(
           "flex h-48 w-48 flex-col items-center justify-center shadow-none transition-all duration-150 ease-out",
-          selected && "border-primary",
+          selected && !preview.isPreview && "border-primary",
+          preview.isPreview &&
+            "border-dashed bg-muted/30 text-muted-foreground opacity-70",
+          preview.highlighted && "border-primary/70 bg-primary/5 opacity-100",
           isDisabled && "opacity-50"
         )}
         data-testid={`action-node-${id}`}
-        handles={{ target: true, source: true }}
-        nodeId={id}
+        data-builder-preview={preview.isPreview ? "true" : undefined}
+        handles={{
+          target: !preview.isPreview,
+          source: !preview.isPreview,
+        }}
+        nodeId={preview.isPreview ? undefined : id}
         status={status}
       >
         {isDisabled && (
@@ -369,12 +392,20 @@ export const ActionNode = memo(({ data, selected, id }: ActionNodeProps) => {
     <Node
       className={cn(
         "relative flex h-48 w-48 flex-col items-center justify-center shadow-none transition-all duration-150 ease-out",
-        selected && "border-primary",
+        selected && !preview.isPreview && "border-primary",
+        preview.isPreview &&
+          "border-dashed bg-muted/30 text-muted-foreground opacity-70",
+        preview.highlighted && "border-primary/70 bg-primary/5 opacity-100",
         isDisabled && "opacity-50"
       )}
       data-testid={`action-node-${id}`}
-      handles={handles}
-      nodeId={id}
+      data-builder-preview={preview.isPreview ? "true" : undefined}
+      handles={
+        preview.isPreview
+          ? { target: false, source: false }
+          : handles
+      }
+      nodeId={preview.isPreview ? undefined : id}
       status={status}
     >
       {/* Disabled badge in top left */}

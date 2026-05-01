@@ -17,11 +17,27 @@ type TriggerNodeProps = NodeProps & {
   data?: WorkflowNodeData;
 };
 
+function getPreviewMeta(data: WorkflowNodeData): {
+  isPreview: boolean;
+  highlighted: boolean;
+} {
+  const meta = data as WorkflowNodeData & {
+    builderPreview?: boolean;
+    builderHighlighted?: boolean;
+  };
+
+  return {
+    isPreview: meta.builderPreview === true,
+    highlighted: meta.builderHighlighted === true,
+  };
+}
+
 export const TriggerNode = memo(({ data, selected, id }: TriggerNodeProps) => {
   if (!data) {
     return null;
   }
 
+  const preview = getPreviewMeta(data);
   const triggerType = (data.config?.triggerType as string) || "Manual";
   const displayTitle = data.label || triggerType;
   const displayDescription = data.description || "Trigger";
@@ -48,10 +64,14 @@ export const TriggerNode = memo(({ data, selected, id }: TriggerNodeProps) => {
     <Node
       className={cn(
         "flex h-48 w-48 flex-col items-center justify-center shadow-none transition-all duration-150 ease-out",
-        selected && "border-primary"
+        selected && !preview.isPreview && "border-primary",
+        preview.isPreview &&
+          "border-dashed bg-muted/30 text-muted-foreground opacity-70",
+        preview.highlighted && "border-primary/70 bg-primary/5 opacity-100"
       )}
-      handles={{ target: false, source: true }}
-      nodeId={id}
+      data-builder-preview={preview.isPreview ? "true" : undefined}
+      handles={{ target: false, source: !preview.isPreview }}
+      nodeId={preview.isPreview ? undefined : id}
       status={status}
     >
       {/* Status indicator badge in top right */}

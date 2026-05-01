@@ -109,9 +109,26 @@ const getEdgeParams = (
   };
 };
 
-const Animated = ({ id, source, target, sourceHandleId, targetHandleId, style, selected }: EdgeProps) => {
+const Animated = ({
+  id,
+  source,
+  target,
+  sourceHandleId,
+  targetHandleId,
+  style,
+  selected,
+  data,
+}: EdgeProps) => {
   const sourceNode = useInternalNode(source);
   const targetNode = useInternalNode(target);
+  const isPreview =
+    typeof data === "object" &&
+    data !== null &&
+    (data as Record<string, unknown>).builderPreview === true;
+  const isHighlighted =
+    typeof data === "object" &&
+    data !== null &&
+    (data as Record<string, unknown>).builderHighlighted === true;
 
   if (!(sourceNode && targetNode)) {
     return null;
@@ -134,15 +151,23 @@ const Animated = ({ id, source, target, sourceHandleId, targetHandleId, style, s
   });
 
   return (
-    <BaseEdge 
-      id={id} 
-      path={edgePath} 
+    <BaseEdge
+      data-builder-preview={isPreview ? "true" : undefined}
+      id={id}
+      path={edgePath}
       style={{
         ...style,
-        stroke: selected ? "var(--muted-foreground)" : "var(--border)",
-        strokeWidth: 2,
-        animation: "dashdraw 0.5s linear infinite",
-        strokeDasharray: 5,
+        stroke: isPreview
+          ? isHighlighted
+            ? "var(--primary)"
+            : "var(--muted-foreground)"
+          : selected
+            ? "var(--muted-foreground)"
+            : "var(--border)",
+        strokeOpacity: isPreview && !isHighlighted ? 0.55 : undefined,
+        strokeWidth: isPreview && isHighlighted ? 2.5 : 2,
+        animation: isPreview ? undefined : "dashdraw 0.5s linear infinite",
+        strokeDasharray: isPreview ? "6 6" : 5,
       }}
     />
   );

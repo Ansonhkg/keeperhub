@@ -35,6 +35,7 @@ export type BuilderPreviewNodeData = WorkflowNode["data"] & {
   builderRequirementIds: string[];
   builderCapabilityMatchId?: string;
   builderCustomProposalId?: string;
+  builderHighlighted?: boolean;
 };
 
 export type BuilderPreviewEdgeData = {
@@ -43,6 +44,7 @@ export type BuilderPreviewEdgeData = {
   builderBranchId: string;
   builderOptionId?: string;
   builderRequirementIds: string[];
+  builderHighlighted?: boolean;
 };
 
 export type BuilderPreviewNode = Omit<WorkflowNode, "data"> & {
@@ -91,4 +93,9 @@ export type BuilderProjection = {
 export type WorkflowGraph = {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+};
+
+export type BuilderProjectionHighlight = {
+  branchId?: string | null;
+  optionId?: string | null;
 };

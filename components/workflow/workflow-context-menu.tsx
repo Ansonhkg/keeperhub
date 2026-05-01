@@ -259,7 +259,7 @@ export function useContextMenuHandlers(
     (event: React.MouseEvent, node: Node) => {
       event.preventDefault();
       const data = node.data as WorkflowNode["data"] | undefined;
-      if (data?.type === "trigger") {
+      if (isBuilderPreviewData(data) || data?.type === "trigger") {
         return;
       }
       setMenuState({
@@ -274,6 +274,9 @@ export function useContextMenuHandlers(
   const onEdgeContextMenu = useCallback(
     (event: React.MouseEvent, edge: Edge) => {
       event.preventDefault();
+      if (isBuilderPreviewData(edge.data)) {
+        return;
+      }
       setMenuState({
         type: "edge",
         position: { x: event.clientX, y: event.clientY },
@@ -304,4 +307,12 @@ export function useContextMenuHandlers(
     onEdgeContextMenu,
     onPaneContextMenu,
   };
+}
+
+function isBuilderPreviewData(data: unknown): boolean {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as Record<string, unknown>).builderPreview === true
+  );
 }

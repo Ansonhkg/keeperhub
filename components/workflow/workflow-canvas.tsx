@@ -96,6 +96,14 @@ function getActionType(node: { data?: unknown }): string | undefined {
   return config?.actionType as string | undefined;
 }
 
+function isBuilderPreviewData(data: unknown): boolean {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as Record<string, unknown>).builderPreview === true
+  );
+}
+
 const VIEWPORT_STORAGE_PREFIX = "wf-viewport-";
 const FIT_VIEW_DEFAULTS = { maxZoom: 1, minZoom: 0.1, padding: 0.2, duration: 0 } as const;
 
@@ -434,6 +442,17 @@ export function WorkflowCanvas() {
         return false;
       }
 
+      const sourceNode = renderedNodes.find((n) => n.id === connection.source);
+      const targetRenderedNode = renderedNodes.find(
+        (n) => n.id === connection.target
+      );
+      if (
+        isBuilderPreviewData(sourceNode?.data) ||
+        isBuilderPreviewData(targetRenderedNode?.data)
+      ) {
+        return false;
+      }
+
       // Prevent self-connections
       if (connection.source === connection.target) {
         return false;
@@ -480,7 +499,7 @@ export function WorkflowCanvas() {
 
       return true;
     },
-    [edges, nodes]
+    [edges, nodes, renderedNodes]
   );
 
   const onConnect: OnConnect = useCallback(
@@ -545,6 +564,10 @@ export function WorkflowCanvas() {
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_event, node) => {
+      if (isBuilderPreviewData(node.data)) {
+        return;
+      }
+
       setSelectedNode(node.id);
       // Don't auto-open sidebar during workflow switch
       if (isSidebarCollapsed && !isLoadingWorkflow.current) {
@@ -731,10 +754,14 @@ export function WorkflowCanvas() {
         return;
       }
 
-      if (selectedNodes.length === 0) {
+      const selectedRealNodes = selectedNodes.filter(
+        (node) => !isBuilderPreviewData(node.data)
+      );
+
+      if (selectedRealNodes.length === 0) {
         setSelectedNode(null);
-      } else if (selectedNodes.length === 1) {
-        setSelectedNode(selectedNodes[0].id);
+      } else if (selectedRealNodes.length === 1) {
+        setSelectedNode(selectedRealNodes[0].id);
       }
     },
     [setSelectedNode]
