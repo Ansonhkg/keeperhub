@@ -40,6 +40,7 @@ import { WalletToolbarButton } from "@/components/workflow/wallet-toolbar-button
 import { BUILTIN_NODE_ID } from "@/lib/builtin-variables";
 import { isAnonymousUser } from "@/lib/is-anonymous";
 import { api, ApiError, type Project, type Tag } from "@/lib/api-client";
+import { filterBuilderPreviewGraph } from "@/lib/agentic-builder/canvas-projection";
 import { authClient, useSession } from "@/lib/auth-client";
 import { getCustomLogo } from "@/lib/extension-registry";
 import { integrationsAtom } from "@/lib/integrations-store";
@@ -594,7 +595,10 @@ function useWorkflowHandlers({
 
     setIsSaving(true);
     try {
-      await api.workflow.update(currentWorkflowId, { nodes, edges });
+      await api.workflow.update(
+        currentWorkflowId,
+        filterBuilderPreviewGraph({ nodes, edges })
+      );
       setHasUnsavedChanges(false);
     } catch (error) {
       console.error("Failed to save workflow:", error);

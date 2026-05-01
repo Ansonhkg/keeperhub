@@ -435,6 +435,20 @@
       "when": 1777320357901,
       "tag": "0061_unknown_mephisto",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1777496445197,
+      "tag": "0062_chubby_salo",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1777496809266,
+      "tag": "0063_gifted_epoch",
+      "breakpoints": true
     }
   ]
 }

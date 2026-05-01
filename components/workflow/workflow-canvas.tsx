@@ -16,7 +16,7 @@ import {
 } from "@xyflow/react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
 import { Canvas } from "@/components/ai-elements/canvas";
 import { Connection } from "@/components/ai-elements/connection";
 import { Controls } from "@/components/ai-elements/controls";
@@ -49,6 +49,7 @@ import {
   type WorkflowNode,
   type WorkflowNodeType,
 } from "@/lib/workflow-store";
+import { isBuilderPreviewEdge } from "@/lib/agentic-builder/canvas-projection";
 import { hasDuplicateEdge } from "@/lib/workflow/edge-helpers";
 import { Edge } from "../ai-elements/edge";
 import { Panel } from "../ai-elements/panel";
@@ -97,11 +98,15 @@ const FIT_VIEW_DEFAULTS = { maxZoom: 1, minZoom: 0.1, padding: 0.2, duration: 0 
 
 export function WorkflowCanvas() {
   const pathname = usePathname();
+  const params = useParams<{ workflowId?: string }>();
   const isWorkflowRoute = pathname.startsWith("/workflows/");
   const [nodes, setNodes] = useAtom(nodesAtom);
   const [edges, setEdges] = useAtom(edgesAtom);
   const [isGenerating] = useAtom(isGeneratingAtom);
   const currentWorkflowId = useAtomValue(currentWorkflowIdAtom);
+  const effectiveWorkflowId =
+    currentWorkflowId ??
+    (typeof params.workflowId === "string" ? params.workflowId : undefined);
   const [showMinimap] = useAtom(showMinimapAtom);
   const rightPanelWidth = useAtomValue(rightPanelWidthAtom);
   const isPanelAnimating = useAtomValue(isPanelAnimatingAtom);
@@ -381,6 +386,10 @@ export function WorkflowCanvas() {
       }
 
       const updated = currentEdges.map((edge) => {
+        if (isBuilderPreviewEdge(edge)) {
+          return edge;
+        }
+
         // For Each auto-assign
         if (forEachNodeIds.has(edge.source)) {
           if (edge.sourceHandle === "done" || edge.sourceHandle === "loop") {
@@ -797,7 +806,7 @@ export function WorkflowCanvas() {
       </Canvas>
 
       {/* AI Prompt */}
-      {currentWorkflowId && <AIPrompt workflowId={currentWorkflowId} />}
+      {effectiveWorkflowId && <AIPrompt workflowId={effectiveWorkflowId} />}
 
       {/* Context Menu */}
       <WorkflowContextMenu

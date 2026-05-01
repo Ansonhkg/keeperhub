@@ -1,0 +1,191 @@
+{
+  "version": "1.0.0",
+  "steps": {
+    "node_modules/.pnpm/workflow@4.2.0-beta.76_@nestjs+common@11.1.12_reflect-metadata@0.2.2_rxjs@7.8.2__@nestj_bbd8e16e83c63ad42aa3c647cfa7393b/node_modules/workflow/dist/internal/builtins.js": {
+      "__builtin_response_array_buffer": {
+        "stepId": "__builtin_response_array_buffer"
+      },
+      "__builtin_response_json": {
+        "stepId": "__builtin_response_json"
+      },
+      "__builtin_response_text": {
+        "stepId": "__builtin_response_text"
+      }
+    },
+    "lib/steps/trigger.ts": {
+      "triggerStep": {
+        "stepId": "step//./lib/steps/trigger//triggerStep"
+      }
+    },
+    "lib/steps/condition.ts": {
+      "conditionStep": {
+        "stepId": "step//./lib/steps/condition//conditionStep"
+      }
+    },
+    "lib/steps/collect.ts": {
+      "collectStep": {
+        "stepId": "step//./lib/steps/collect//collectStep"
+      }
+    },
+    "lib/steps/database-query.ts": {
+      "databaseQueryStep": {
+        "stepId": "step//./lib/steps/database-query//databaseQueryStep"
+      }
+    },
+    "lib/steps/http-request.ts": {
+      "httpRequestStep": {
+        "stepId": "step//./lib/steps/http-request//httpRequestStep"
+      }
+    },
+    "lib/steps/trace-event.ts": {
+      "recordWorkflowSpanLinkStep": {
+        "stepId": "step//./lib/steps/trace-event//recordWorkflowSpanLinkStep"
+      },
+      "startWorkflowTraceRunStep": {
+        "stepId": "step//./lib/steps/trace-event//startWorkflowTraceRunStep"
+      }
+    },
+    "plugins/math/steps/aggregate.ts": {
+      "aggregateStep": {
+        "stepId": "step//./plugins/math/steps/aggregate//aggregateStep"
+      }
+    },
+    "plugins/discord/steps/send-message.ts": {
+      "sendDiscordMessageStep": {
+        "stepId": "step//./plugins/discord/steps/send-message//sendDiscordMessageStep"
+      }
+    },
+    "plugins/code/steps/run-code.ts": {
+      "runCodeStep": {
+        "stepId": "step//./plugins/code/steps/run-code//runCodeStep"
+      }
+    },
+    "lib/steps/for-each.ts": {
+      "forEachStep": {
+        "stepId": "step//./lib/steps/for-each//forEachStep"
+      }
+    },
+    "plugins/slack/steps/send-slack-message.ts": {
+      "sendSlackMessageStep": {
+        "stepId": "step//./plugins/slack/steps/send-slack-message//sendSlackMessageStep"
+      }
+    },
+    "plugins/web3/steps/check-balance.ts": {
+      "checkBalanceStep": {
+        "stepId": "step//./plugins/web3/steps/check-balance//checkBalanceStep"
+      }
+    },
+    "plugins/telegram/steps/send-message.ts": {
+      "sendTelegramMessageStep": {
+        "stepId": "step//./plugins/telegram/steps/send-message//sendTelegramMessageStep"
+      }
+    },
+    "plugins/protocol/steps/protocol-write.ts": {
+      "protocolWriteStep": {
+        "stepId": "step//./plugins/protocol/steps/protocol-write//protocolWriteStep"
+      }
+    },
+    "plugins/web3/steps/approve-token.ts": {
+      "approveTokenStep": {
+        "stepId": "step//./plugins/web3/steps/approve-token//approveTokenStep"
+      }
+    },
+    "plugins/protocol/steps/protocol-read.ts": {
+      "protocolReadStep": {
+        "stepId": "step//./plugins/protocol/steps/protocol-read//protocolReadStep"
+      }
+    },
+    "plugins/safe/steps/get-pending-transactions.ts": {
+      "getPendingTransactionsStep": {
+        "stepId": "step//./plugins/safe/steps/get-pending-transactions//getPendingTransactionsStep"
+      }
+    },
+    "plugins/web3/steps/transfer-token.ts": {
+      "transferTokenStep": {
+        "stepId": "step//./plugins/web3/steps/transfer-token//transferTokenStep"
+      }
+    },
+    "plugins/sendgrid/steps/send-email.ts": {
+      "sendEmailStep": {
+        "stepId": "step//./plugins/sendgrid/steps/send-email//sendEmailStep"
+      }
+    },
+    "plugins/webhook/steps/send-webhook.ts": {
+      "sendWebhookStep": {
+        "stepId": "step//./plugins/webhook/steps/send-webhook//sendWebhookStep"
+      }
+    },
+    "lib/steps/enrich-explorer-links.ts": {
+      "enrichExplorerLinks": {
+        "stepId": "step//./lib/steps/enrich-explorer-links//enrichExplorerLinks"
+      }
+    },
+    "plugins/web3/steps/transfer-funds.ts": {
+      "transferFundsStep": {
+        "stepId": "step//./plugins/web3/steps/transfer-funds//transferFundsStep"
+      }
+    },
+    "plugins/web3/steps/get-transaction.ts": {
+      "getTransactionStep": {
+        "stepId": "step//./plugins/web3/steps/get-transaction//getTransactionStep"
+      }
+    },
+    "plugins/web3/steps/batch-read-contract.ts": {
+      "batchReadContractStep": {
+        "stepId": "step//./plugins/web3/steps/batch-read-contract//batchReadContractStep"
+      }
+    },
+    "plugins/web3/steps/decode-calldata.ts": {
+      "decodeCalldataStep": {
+        "stepId": "step//./plugins/web3/steps/decode-calldata//decodeCalldataStep"
+      }
+    },
+    "plugins/web3/steps/query-transactions.ts": {
+      "queryTransactionsStep": {
+        "stepId": "step//./plugins/web3/steps/query-transactions//queryTransactionsStep"
+      }
+    },
+    "plugins/web3/steps/check-allowance.ts": {
+      "checkAllowanceStep": {
+        "stepId": "step//./plugins/web3/steps/check-allowance//checkAllowanceStep"
+      }
+    },
+    "plugins/web3/steps/read-contract.ts": {
+      "readContractStep": {
+        "stepId": "step//./plugins/web3/steps/read-contract//readContractStep"
+      }
+    },
+    "plugins/web3/steps/assess-risk.ts": {
+      "assessRiskStep": {
+        "stepId": "step//./plugins/web3/steps/assess-risk//assessRiskStep"
+      }
+    },
+    "plugins/web3/steps/write-contract.ts": {
+      "writeContractStep": {
+        "stepId": "step//./plugins/web3/steps/write-contract//writeContractStep"
+      }
+    },
+    "plugins/web3/steps/query-events.ts": {
+      "queryEventsStep": {
+        "stepId": "step//./plugins/web3/steps/query-events//queryEventsStep"
+      }
+    },
+    "plugins/web3/steps/check-token-balance.ts": {
+      "checkTokenBalanceStep": {
+        "stepId": "step//./plugins/web3/steps/check-token-balance//checkTokenBalanceStep"
+      }
+    }
+  },
+  "workflows": {
+    "lib/workflow-executor.workflow.ts": {
+      "executeWorkflow": {
+        "workflowId": "workflow//./lib/workflow-executor.workflow//executeWorkflow",
+        "graph": {
+          "nodes": [],
+          "edges": []
+        }
+      }
+    }
+  },
+  "classes": {}
+}

@@ -1,5 +1,6 @@
 import { isNotNull, relations } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -245,6 +246,95 @@ export const workflows = pgTable(
     uniqueIndex("idx_workflows_listed_slug")
       .on(table.listedSlug)
       .where(isNotNull(table.listedSlug)),
+  ]
+);
+
+export const builderSessions = pgTable(
+  "builder_sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    prompt: text("prompt").notNull(),
+    status: text("status").notNull(),
+    dag: jsonb("dag").notNull().$type<Record<string, unknown>>(),
+    turns: jsonb("turns").notNull().$type<unknown[]>(),
+    catalogCandidates: jsonb("catalog_candidates").notNull().$type<unknown[]>(),
+    options: jsonb("options").notNull().$type<unknown[]>(),
+    questions: jsonb("questions").notNull().$type<unknown[]>(),
+    featureRequests: jsonb("feature_requests").notNull().$type<string[]>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [index("idx_builder_sessions_org").on(table.organizationId)]
+);
+
+export const builderEvents = pgTable(
+  "builder_events",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => builderSessions.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    event: jsonb("event").notNull().$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [index("idx_builder_events_session").on(table.sessionId)]
+);
+
+export const builderFeatureRequests = pgTable(
+  "builder_feature_requests",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => builderSessions.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    missingCapability: jsonb("missing_capability")
+      .notNull()
+      .$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [index("idx_builder_feature_requests_session").on(table.sessionId)]
+);
+
+export const builderMaterializations = pgTable(
+  "builder_materializations",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => generateId()),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => builderSessions.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    workflowId: text("workflow_id")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    mode: text("mode").notNull(),
+    inputHash: text("input_hash").notNull(),
+    revision: bigint("revision", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_builder_materializations_idempotency").on(
+      table.organizationId,
+      table.sessionId,
+      table.idempotencyKey,
+      table.inputHash
+    ),
   ]
 );
 

@@ -1,0 +1,63 @@
+{
+  "name": "@keeperhub/agentic-builder",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./schemas": {
+      "types": "./src/core/schemas/all.ts",
+      "import": "./src/core/schemas/all.ts",
+      "default": "./src/core/schemas/all.ts"
+    },
+    "./domain": {
+      "types": "./src/core/domain/all.ts",
+      "import": "./src/core/domain/all.ts",
+      "default": "./src/core/domain/all.ts"
+    },
+    "./ports": {
+      "types": "./src/core/ports/all.ts",
+      "import": "./src/core/ports/all.ts",
+      "default": "./src/core/ports/all.ts"
+    },
+    "./events": {
+      "types": "./src/core/events/builder-events.ts",
+      "import": "./src/core/events/builder-events.ts",
+      "default": "./src/core/events/builder-events.ts"
+    },
+    "./runtime": {
+      "types": "./src/core/services/runtime.ts",
+      "import": "./src/core/services/runtime.ts",
+      "default": "./src/core/services/runtime.ts"
+    },
+    "./templates": {
+      "types": "./src/core/templates/loader.ts",
+      "import": "./src/core/templates/loader.ts",
+      "default": "./src/core/templates/loader.ts"
+    },
+    "./template-runner": {
+      "types": "./src/core/templates/ai-sdk-template-runner.ts",
+      "import": "./src/core/templates/ai-sdk-template-runner.ts",
+      "default": "./src/core/templates/ai-sdk-template-runner.ts"
+    },
+    "./ai-sdk": {
+      "types": "./src/core/templates/ai-sdk-json-template-runner.ts",
+      "import": "./src/core/templates/ai-sdk-json-template-runner.ts",
+      "default": "./src/core/templates/ai-sdk-json-template-runner.ts"
+    },
+    "./http": {
+      "types": "./src/adapters/http/handlers.ts",
+      "import": "./src/adapters/http/handlers.ts",
+      "default": "./src/adapters/http/handlers.ts"
+    },
+    "./mcp": {
+      "types": "./src/adapters/mcp/tools.ts",
+      "import": "./src/adapters/mcp/tools.ts",
+      "default": "./src/adapters/mcp/tools.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@keeperhub/builder-dag": "workspace:*"
+  }
+}

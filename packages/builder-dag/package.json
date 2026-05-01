@@ -1,0 +1,45 @@
+{
+  "name": "@keeperhub/builder-dag",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./branch": {
+      "types": "./src/branch.ts",
+      "import": "./src/branch.ts",
+      "default": "./src/branch.ts"
+    },
+    "./commit-graph": {
+      "types": "./src/commit-graph.ts",
+      "import": "./src/commit-graph.ts",
+      "default": "./src/commit-graph.ts"
+    },
+    "./commit-store": {
+      "types": "./src/commit-store.ts",
+      "import": "./src/commit-store.ts",
+      "default": "./src/commit-store.ts"
+    },
+    "./fork": {
+      "types": "./src/fork.ts",
+      "import": "./src/fork.ts",
+      "default": "./src/fork.ts"
+    },
+    "./projection": {
+      "types": "./src/projection.ts",
+      "import": "./src/projection.ts",
+      "default": "./src/projection.ts"
+    },
+    "./schemas": {
+      "types": "./src/schemas.ts",
+      "import": "./src/schemas.ts",
+      "default": "./src/schemas.ts"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "import": "./src/types.ts",
+      "default": "./src/types.ts"
+    },
+    "./package.json": "./package.json"
+  }
+}

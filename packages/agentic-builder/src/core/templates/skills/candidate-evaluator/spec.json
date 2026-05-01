@@ -1,0 +1,11 @@
+{
+  "name": "candidate-evaluator",
+  "version": "1.0.0",
+  "placeholders": [
+    "sourceText",
+    "dynamicRequirements",
+    "candidates",
+    "fallbackEvaluation"
+  ],
+  "outputSchema": "CandidateEvaluationResult"
+}

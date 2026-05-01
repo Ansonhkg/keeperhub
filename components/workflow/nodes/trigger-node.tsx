@@ -26,6 +26,7 @@ export const TriggerNode = memo(({ data, selected, id }: TriggerNodeProps) => {
   const displayTitle = data.label || triggerType;
   const displayDescription = data.description || "Trigger";
   const status = data.status;
+  const isPreview = data.config?.builderPreview === true;
 
   // Select icon based on trigger type
   const triggerIcons: Record<WorkflowTriggerType, ElementType> = {
@@ -48,10 +49,12 @@ export const TriggerNode = memo(({ data, selected, id }: TriggerNodeProps) => {
     <Node
       className={cn(
         "flex h-48 w-48 flex-col items-center justify-center shadow-none transition-all duration-150 ease-out",
-        selected && "border-primary"
+        selected && "border-primary",
+        isPreview &&
+          "border-dashed bg-muted/35 opacity-70 grayscale hover:opacity-90"
       )}
       handles={{ target: false, source: true }}
-      nodeId={id}
+      nodeId={isPreview ? undefined : id}
       status={status}
     >
       {/* Status indicator badge in top right */}

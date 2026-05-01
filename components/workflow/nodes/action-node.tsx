@@ -277,6 +277,7 @@ export const ActionNode = memo(({ data, selected, id }: ActionNodeProps) => {
 
   const actionType = (data.config?.actionType as string) || "";
   const status = data.status;
+  const isPreview = data.config?.builderPreview === true;
 
   // Check if this node has a generated image from the selected execution
   const nodeLog = executionLogs[id];
@@ -294,10 +295,12 @@ export const ActionNode = memo(({ data, selected, id }: ActionNodeProps) => {
         className={cn(
           "flex h-48 w-48 flex-col items-center justify-center shadow-none transition-all duration-150 ease-out",
           selected && "border-primary",
-          isDisabled && "opacity-50"
+          isDisabled && "opacity-50",
+          isPreview &&
+            "border-dashed bg-muted/35 opacity-70 grayscale hover:opacity-90"
         )}
         data-testid={`action-node-${id}`}
-        handles={{ target: true, source: true }}
+        handles={{ target: true, source: !isPreview }}
         nodeId={id}
         status={status}
       >
@@ -363,17 +366,20 @@ export const ActionNode = memo(({ data, selected, id }: ActionNodeProps) => {
     : isCondition
       ? { target: true, source: false, sourceHandles: CONDITION_SOURCE_HANDLES }
       : { target: true, source: true };
+  const renderedHandles = isPreview ? { target: true, source: true } : handles;
 
   return (
     <Node
       className={cn(
         "relative flex h-48 w-48 flex-col items-center justify-center shadow-none transition-all duration-150 ease-out",
         selected && "border-primary",
-        isDisabled && "opacity-50"
+        isDisabled && "opacity-50",
+        isPreview &&
+          "border-dashed bg-muted/35 opacity-70 grayscale hover:opacity-90"
       )}
       data-testid={`action-node-${id}`}
-      handles={handles}
-      nodeId={id}
+      handles={renderedHandles}
+      nodeId={isPreview ? undefined : id}
       status={status}
     >
       {/* Disabled badge in top left */}

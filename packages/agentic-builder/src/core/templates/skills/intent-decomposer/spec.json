@@ -1,0 +1,6 @@
+{
+  "name": "intent-decomposer",
+  "version": "1.0.0",
+  "placeholders": ["intent", "entities"],
+  "outputSchema": "IntentPlan"
+}

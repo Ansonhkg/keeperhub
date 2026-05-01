@@ -1,0 +1,6 @@
+{
+  "name": "repair",
+  "version": "1.0.0",
+  "placeholders": ["invalidOutput", "schema"],
+  "outputSchema": "RepairedOutput"
+}

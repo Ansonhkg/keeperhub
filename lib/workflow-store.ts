@@ -3,6 +3,7 @@ import { applyEdgeChanges, applyNodeChanges } from "@xyflow/react";
 import { atom } from "jotai";
 import { computeAutoLayout } from "@/lib/auto-layout";
 import { buildExecutionLogsMap } from "@/lib/template-helpers";
+import { filterBuilderPreviewGraph } from "./agentic-builder/canvas-projection";
 import { api } from "./api-client";
 
 export type WorkflowNodeType = "trigger" | "action" | "add";
@@ -130,6 +131,7 @@ export const autosaveAtom = atom(
     const workflowId = get(currentWorkflowIdAtom);
     const nodes = get(nodesAtom);
     const edges = get(edgesAtom);
+    const persistedGraph = filterBuilderPreviewGraph({ nodes, edges });
 
     // Only autosave if we have a workflow ID
     if (!workflowId) {
@@ -139,7 +141,7 @@ export const autosaveAtom = atom(
     const saveFunc = async () => {
       try {
         set(isSavingAtom, true);
-        await api.workflow.update(workflowId, { nodes, edges });
+        await api.workflow.update(workflowId, persistedGraph);
         // Clear the unsaved changes indicator after successful save
         set(hasUnsavedChangesAtom, false);
       } catch (error) {

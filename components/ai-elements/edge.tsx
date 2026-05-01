@@ -18,6 +18,7 @@ const Temporary = ({
   sourcePosition,
   targetPosition,
   selected,
+  style,
 }: EdgeProps) => {
   const [edgePath] = getSimpleBezierPath({
     sourceX,
@@ -36,6 +37,7 @@ const Temporary = ({
       style={{
         stroke: selected ? "var(--muted-foreground)" : "var(--border)",
         strokeDasharray: "5, 5",
+        ...style,
       }}
     />
   );

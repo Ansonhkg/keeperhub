@@ -1,0 +1,6 @@
+{
+  "name": "prediction-engine",
+  "version": "1.0.0",
+  "placeholders": ["options"],
+  "outputSchema": "CandidateBranches"
+}

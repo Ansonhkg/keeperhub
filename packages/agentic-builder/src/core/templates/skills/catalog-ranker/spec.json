@@ -1,0 +1,6 @@
+{
+  "name": "catalog-ranker",
+  "version": "1.0.0",
+  "placeholders": ["candidates"],
+  "outputSchema": "RankedCandidates"
+}

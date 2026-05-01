@@ -32,6 +32,7 @@ import { ProjectSelect } from "@/components/projects/project-select";
 import { TagSelect } from "@/components/tags/tag-select";
 import { refetchSidebar } from "@/lib/refetch-sidebar";
 import { api } from "@/lib/api-client";
+import { filterBuilderPreviewGraph } from "@/lib/agentic-builder/canvas-projection";
 import { integrationsAtom } from "@/lib/integrations-store";
 import type { IntegrationType } from "@/lib/types/integration";
 import { generateWorkflowCode } from "@/lib/workflow-codegen";
@@ -627,9 +628,8 @@ export const PanelInner = () => {
     if (currentWorkflowId) {
       try {
         await api.workflow.update(currentWorkflowId, {
+          ...filterBuilderPreviewGraph({ nodes, edges }),
           name: newName,
-          nodes,
-          edges,
         });
         if (sidebarRefetchTimerRef.current) {
           clearTimeout(sidebarRefetchTimerRef.current);

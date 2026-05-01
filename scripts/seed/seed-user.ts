@@ -19,12 +19,14 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { getDatabaseUrl } from "../../lib/db/connection-utils";
-import { accounts, users } from "../../lib/db/schema";
+import { accounts, member, organization, sessions, users } from "../../lib/db/schema";
 import { generateId } from "../../lib/utils/id";
 
 const EMAIL = process.env.SEED_EMAIL ?? "dev@keeperhub.local";
 const PASSWORD = process.env.SEED_PASSWORD ?? "Test1234!";
 const NAME = process.env.SEED_NAME ?? "Dev User";
+const ORG_NAME = process.env.SEED_ORG_NAME ?? "Dev Organization";
+const ORG_SLUG = process.env.SEED_ORG_SLUG ?? "dev-organization";
 
 const SCRYPT_CONFIG = { N: 16_384, r: 16, p: 1, dkLen: 64 } as const;
 
@@ -84,8 +86,10 @@ async function main(): Promise<void> {
       .where(eq(users.email, EMAIL))
       .limit(1);
 
+    let userId: string;
+
     if (existing.length > 0) {
-      const userId = existing[0].id;
+      userId = existing[0].id;
       const hash = await hashPassword(PASSWORD);
 
       await db
@@ -101,7 +105,7 @@ async function main(): Promise<void> {
       console.log(`Updated existing user: ${EMAIL}`);
       console.log(`  Password reset to: ${PASSWORD}`);
     } else {
-      const userId = generateId();
+      userId = generateId();
       const accountId = generateId();
       const hash = await hashPassword(PASSWORD);
       const now = new Date();
@@ -129,6 +133,44 @@ async function main(): Promise<void> {
       console.log(`Created user: ${EMAIL}`);
       console.log(`  Password: ${PASSWORD}`);
     }
+
+    const orgRows = await db
+      .select({ id: organization.id })
+      .from(organization)
+      .where(eq(organization.slug, ORG_SLUG))
+      .limit(1);
+    const organizationId = orgRows[0]?.id ?? generateId();
+    if (orgRows.length === 0) {
+      await db.insert(organization).values({
+        id: organizationId,
+        name: ORG_NAME,
+        slug: ORG_SLUG,
+        createdAt: new Date(),
+      });
+    }
+
+    const memberRows = await db
+      .select({ id: member.id })
+      .from(member)
+      .where(eq(member.userId, userId))
+      .limit(1);
+    if (memberRows.length === 0) {
+      await db.insert(member).values({
+        id: generateId(),
+        organizationId,
+        userId,
+        role: "owner",
+        createdAt: new Date(),
+      });
+    }
+
+    await db
+      .update(sessions)
+      .set({ activeOrganizationId: organizationId, updatedAt: new Date() })
+      .where(eq(sessions.userId, userId));
+
+    console.log(`  Organization: ${ORG_NAME} (${organizationId})`);
+    console.log("  Active organization applied to existing sessions");
   } finally {
     await client.end();
   }

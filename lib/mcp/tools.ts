@@ -1,5 +1,7 @@
+import { createBuilderMcpTools } from "@keeperhub/agentic-builder/mcp";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { keeperHubBuilderRuntime } from "@/lib/agentic-builder/keeperhub-runtime";
 import { withToolLogging } from "./logging";
 import { isToolAllowed } from "./oauth-scopes";
 
@@ -79,6 +81,12 @@ export function registerTools(
   authHeader: string,
   scope?: string
 ): void {
+  const builderToolDescriptions = new Map(
+    createBuilderMcpTools(keeperHubBuilderRuntime).map((tool) => [
+      tool.name,
+      tool.description,
+    ])
+  );
   // =========================================================================
   // Workflow CRUD
   // =========================================================================
@@ -334,12 +342,12 @@ export function registerTools(
   );
 
   // =========================================================================
-  // AI Workflow Generation
+  // Agentic Workflow Builder
   // =========================================================================
 
   server.tool(
     "ai_generate_workflow",
-    "Generate a complete workflow from a natural language description using AI. Returns a workflow definition ready to be created.",
+    "Start an agentic workflow builder session from natural language. Returns committed state, options, and grey preview branches; it does not create a workflow directly.",
     {
       prompt: z
         .string()
@@ -352,7 +360,7 @@ export function registerTools(
         .describe("Additional context or constraints for the AI generator"),
     },
     {
-      title: "AI Generate Workflow",
+      title: "Start Agentic Workflow Planning",
       readOnlyHint: true,
       destructiveHint: false,
     },
@@ -361,9 +369,286 @@ export function registerTools(
         const data = await callApi(
           baseUrl,
           authHeader,
-          "/api/ai/generate",
+          "/api/builder/sessions",
           "POST",
           { prompt: args.prompt, context: args.context }
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        };
+      })
+    )
+  );
+
+  server.tool(
+    "builder_start_session",
+    builderToolDescriptions.get("builder_start_session") ??
+      "Start an agentic builder session and return the first projection.",
+    { prompt: z.string().describe("Natural language workflow intent") },
+    {
+      title: "Builder Start Session",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    withScopeCheck("builder_start_session", scope, async (args) =>
+      withToolLogging("builder_start_session", undefined, async () => {
+        const data = await callApi(
+          baseUrl,
+          authHeader,
+          "/api/builder/sessions",
+          "POST",
+          { prompt: args.prompt }
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        };
+      })
+    )
+  );
+
+  server.tool(
+    "builder_get_projection",
+    builderToolDescriptions.get("builder_get_projection") ??
+      "Get an agentic builder session projection by session ID.",
+    { sessionId: z.string() },
+    {
+      title: "Builder Get Projection",
+      readOnlyHint: true,
+      destructiveHint: false,
+    },
+    withScopeCheck("builder_get_projection", scope, async (args) =>
+      withToolLogging("builder_get_projection", undefined, async () => {
+        const data = await callApi(
+          baseUrl,
+          authHeader,
+          `/api/builder/sessions/${args.sessionId}/projection`,
+          "GET"
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        };
+      })
+    )
+  );
+
+  server.tool(
+    "builder_select_option",
+    "Select a builder option. This promotes one grey branch into one DAG commit.",
+    {
+      sessionId: z.string(),
+      optionId: z.string(),
+      expectedRevision: z.number().optional(),
+    },
+    {
+      title: "Builder Select Option",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    withScopeCheck("builder_select_option", scope, async (args) =>
+      withToolLogging("builder_select_option", undefined, async () => {
+        const data = await callApi(
+          baseUrl,
+          authHeader,
+          `/api/builder/sessions/${args.sessionId}/options/${args.optionId}/select`,
+          "POST",
+          { expectedRevision: args.expectedRevision }
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        };
+      })
+    )
+  );
+
+  server.tool(
+    "builder_materialize_workflow",
+    "Materialize only committed, valid builder state into a workflow.",
+    {
+      sessionId: z.string(),
+      mode: z.enum(["create", "update"]),
+      idempotencyKey: z.string(),
+      name: z.string().optional(),
+      workflowId: z.string().optional(),
+      expectedRevision: z.number().optional(),
+      overwritePolicy: z.enum(["fail", "overwrite"]).optional(),
+    },
+    {
+      title: "Builder Materialize Workflow",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    withScopeCheck("builder_materialize_workflow", scope, async (args) =>
+      withToolLogging("builder_materialize_workflow", undefined, async () => {
+        const data = await callApi(
+          baseUrl,
+          authHeader,
+          `/api/builder/sessions/${args.sessionId}/materialize`,
+          "POST",
+          args
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        };
+      })
+    )
+  );
+
+  server.tool(
+    "builder_get_events",
+    "Stream/read builder events for a session.",
+    { sessionId: z.string() },
+    { title: "Builder Get Events", readOnlyHint: true, destructiveHint: false },
+    withScopeCheck("builder_get_events", scope, async (args) =>
+      withToolLogging("builder_get_events", undefined, async () => {
+        const data = await callApi(
+          baseUrl,
+          authHeader,
+          `/api/builder/sessions/${args.sessionId}/events`,
+          "GET"
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        };
+      })
+    )
+  );
+
+  server.tool(
+    "builder_reject_option",
+    "Reject a builder option without moving committed head.",
+    { sessionId: z.string(), optionId: z.string() },
+    {
+      title: "Builder Reject Option",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    withScopeCheck("builder_reject_option", scope, async (args) =>
+      withToolLogging("builder_reject_option", undefined, async () => {
+        const data = await callApi(
+          baseUrl,
+          authHeader,
+          `/api/builder/sessions/${args.sessionId}/options/${args.optionId}/reject`,
+          "POST"
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        };
+      })
+    )
+  );
+
+  server.tool(
+    "builder_answer_question",
+    "Answer an open builder question and resume planning.",
+    { sessionId: z.string(), questionId: z.string(), answer: z.string() },
+    {
+      title: "Builder Answer Question",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    withScopeCheck("builder_answer_question", scope, async (args) =>
+      withToolLogging("builder_answer_question", undefined, async () => {
+        const data = await callApi(
+          baseUrl,
+          authHeader,
+          `/api/builder/sessions/${args.sessionId}/questions/${args.questionId}/answer`,
+          "POST",
+          { answer: args.answer }
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        };
+      })
+    )
+  );
+
+  server.tool(
+    "builder_regenerate_from_node",
+    "Regenerate from a committed node or commit while preserving upstream history.",
+    {
+      sessionId: z.string(),
+      kind: z.enum(["after_node", "replace_node", "from_commit"]),
+      nodeId: z.string().optional(),
+      commitId: z.string().optional(),
+    },
+    {
+      title: "Builder Regenerate",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    withScopeCheck("builder_regenerate_from_node", scope, async (args) =>
+      withToolLogging("builder_regenerate_from_node", undefined, async () => {
+        const data = await callApi(
+          baseUrl,
+          authHeader,
+          `/api/builder/sessions/${args.sessionId}/regenerate-from-node`,
+          "POST",
+          args
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        };
+      })
+    )
+  );
+
+  server.tool(
+    "builder_request_native_capability",
+    "Create a contextual request for a missing native capability.",
+    {
+      sessionId: z.string(),
+      id: z.string(),
+      originalIntent: z.string(),
+      expectedInputs: z.array(z.string()),
+      expectedOutputs: z.array(z.string()),
+    },
+    {
+      title: "Builder Request Native Capability",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    withScopeCheck("builder_request_native_capability", scope, async (args) =>
+      withToolLogging(
+        "builder_request_native_capability",
+        undefined,
+        async () => {
+          const data = await callApi(
+            baseUrl,
+            authHeader,
+            `/api/builder/sessions/${args.sessionId}/feature-requests`,
+            "POST",
+            {
+              id: args.id,
+              originalIntent: args.originalIntent,
+              expectedInputs: args.expectedInputs,
+              expectedOutputs: args.expectedOutputs,
+              context: { source: "mcp" },
+            }
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+          };
+        }
+      )
+    )
+  );
+
+  server.tool(
+    "builder_cancel_session",
+    "Cancel a builder session.",
+    { sessionId: z.string() },
+    {
+      title: "Builder Cancel Session",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    withScopeCheck("builder_cancel_session", scope, async (args) =>
+      withToolLogging("builder_cancel_session", undefined, async () => {
+        const data = await callApi(
+          baseUrl,
+          authHeader,
+          `/api/builder/sessions/${args.sessionId}/cancel`,
+          "POST"
         );
         return {
           content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
@@ -620,8 +905,8 @@ export function registerTools(
           "",
           "WORKFLOW CREATION",
           "1. Call list_action_schemas to discover available actions and triggers",
-          "2. Call ai_generate_workflow with a natural language prompt to generate a workflow",
-          "3. Call create_workflow with the generated definition to persist it",
+          "2. Call builder_start_session or ai_generate_workflow to start agentic planning",
+          "3. Select options and materialize committed builder state when valid",
           "4. Call execute_workflow to run it manually",
           "5. Call get_execution_status to poll for completion",
           "",

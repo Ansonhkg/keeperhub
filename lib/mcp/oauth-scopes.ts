@@ -26,6 +26,8 @@ const READ_TOOLS = new Set<string>([
   "search_protocol_actions",
   "get_direct_execution_status",
   "search_workflows",
+  "builder_get_projection",
+  "builder_get_events",
 ]);
 
 const WRITE_TOOLS = new Set<string>([
@@ -36,6 +38,14 @@ const WRITE_TOOLS = new Set<string>([
   "execute_workflow",
   "deploy_template",
   "ai_generate_workflow",
+  "builder_start_session",
+  "builder_select_option",
+  "builder_reject_option",
+  "builder_answer_question",
+  "builder_regenerate_from_node",
+  "builder_request_native_capability",
+  "builder_materialize_workflow",
+  "builder_cancel_session",
   "execute_protocol_action",
   "execute_transfer",
   "execute_contract_call",

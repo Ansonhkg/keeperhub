@@ -8,7 +8,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { NodeConfigPanel } from "@/components/workflow/node-config-panel";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { api } from "@/lib/api-client";
+import { filterBuilderPreviewGraph } from "@/lib/agentic-builder/canvas-projection";
+import { ApiError, api } from "@/lib/api-client";
 import { authClient, useSession } from "@/lib/auth-client";
 import {
   getPendingClaim,
@@ -21,6 +22,7 @@ import {
 } from "@/lib/integrations-store";
 import type { IntegrationType } from "@/lib/types/integration";
 import {
+  currentExecutionIdAtom,
   currentWorkflowDescriptionAtom,
   currentWorkflowIdAtom,
   currentWorkflowInputSchemaAtom,
@@ -35,6 +37,7 @@ import {
   currentWorkflowTagIdAtom,
   currentWorkflowVisibilityAtom,
   edgesAtom,
+  executionLogsAtom,
   hasSidebarBeenShownAtom,
   hasUnsavedChangesAtom,
   isGeneratingAtom,
@@ -43,14 +46,18 @@ import {
   isSidebarCollapsedAtom,
   isWorkflowEnabled,
   isWorkflowOwnerAtom,
+  lastExecutionLogsAtom,
   newlyCreatedNodeIdAtom,
   nodesAtom,
+  pendingIntegrationNodesAtom,
   propertiesPanelActiveTabAtom,
   rightPanelWidthAtom,
+  selectedEdgeAtom,
   selectedExecutionIdAtom,
   selectedNodeAtom,
   triggerExecuteAtom,
   updateNodeDataAtom,
+  type WorkflowEdge,
   type WorkflowNode,
   type WorkflowVisibility,
   workflowNotFoundAtom,
@@ -136,7 +143,9 @@ const WorkflowEditor = ({ params }: WorkflowPageProps) => {
   );
   const [edges] = useAtom(edgesAtom);
   const [currentWorkflowId] = useAtom(currentWorkflowIdAtom);
-  const [selectedExecutionId] = useAtom(selectedExecutionIdAtom);
+  const [selectedExecutionId, setSelectedExecutionId] = useAtom(
+    selectedExecutionIdAtom
+  );
   const setNodes = useSetAtom(nodesAtom);
   const setEdges = useSetAtom(edgesAtom);
   const setCurrentWorkflowId = useSetAtom(currentWorkflowIdAtom);
@@ -148,6 +157,10 @@ const WorkflowEditor = ({ params }: WorkflowPageProps) => {
   const setCurrentWorkflowTagId = useSetAtom(currentWorkflowTagIdAtom);
   const updateNodeData = useSetAtom(updateNodeDataAtom);
   const setHasUnsavedChanges = useSetAtom(hasUnsavedChangesAtom);
+  const setCurrentExecutionId = useSetAtom(currentExecutionIdAtom);
+  const setExecutionLogs = useSetAtom(executionLogsAtom);
+  const setLastExecutionLogs = useSetAtom(lastExecutionLogsAtom);
+  const setPendingIntegrationNodes = useSetAtom(pendingIntegrationNodesAtom);
   const [workflowNotFound, setWorkflowNotFound] = useAtom(workflowNotFoundAtom);
   const setTriggerExecute = useSetAtom(triggerExecuteAtom);
   const setRightPanelWidth = useSetAtom(rightPanelWidthAtom);
@@ -177,6 +190,7 @@ const WorkflowEditor = ({ params }: WorkflowPageProps) => {
   );
   const setCurrentWorkflowPriceUsdc = useSetAtom(currentWorkflowPriceUsdcAtom);
   const setSelectedNode = useSetAtom(selectedNodeAtom);
+  const setSelectedEdge = useSetAtom(selectedEdgeAtom);
   const setActiveTab = useSetAtom(propertiesPanelActiveTabAtom);
   const setNewlyCreatedNodeId = useSetAtom(newlyCreatedNodeIdAtom);
   const setGlobalIntegrations = useSetAtom(integrationsAtom);
@@ -351,33 +365,51 @@ const WorkflowEditor = ({ params }: WorkflowPageProps) => {
     nodesRef.current = nodes;
   }, [nodes]);
 
-  // Helper function to generate workflow from AI
+  // Helper function to start agentic workflow planning.
   const generateWorkflowFromAI = useCallback(
     async (prompt: string) => {
       setIsGenerating(true);
       setCurrentWorkflowId(workflowId);
-      setCurrentWorkflowName("AI Generated Workflow");
+      setCurrentWorkflowName("Agentic Workflow Plan");
 
       try {
-        const workflowData = await api.ai.generate(prompt);
-
-        // Clear selection on all nodes
-        const nodesWithoutSelection = (workflowData.nodes || []).map(
-          (node: WorkflowNode) => ({ ...node, selected: false })
+        const response = await fetch("/api/builder/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt }),
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const projection = (await response.json()) as {
+          readonly sessionId: string;
+          readonly committed: {
+            readonly nodes: readonly WorkflowNode[];
+            readonly edges: readonly {
+              readonly fromStepId: string;
+              readonly toStepId: string;
+            }[];
+          };
+        };
+        const nodesWithoutSelection = projection.committed.nodes.map(
+          (node) => ({
+            ...node,
+            selected: false,
+          })
         );
         setNodes(nodesWithoutSelection);
-        setEdges(workflowData.edges || []);
-        setCurrentWorkflowName(workflowData.name || "AI Generated Workflow");
-
-        await api.workflow.update(workflowId, {
-          name: workflowData.name,
-          description: workflowData.description,
-          nodes: workflowData.nodes,
-          edges: workflowData.edges,
-        });
+        setEdges(
+          projection.committed.edges.map<WorkflowEdge>((edge) => ({
+            id: `${edge.fromStepId}-${edge.toStepId}`,
+            source: edge.fromStepId,
+            target: edge.toStepId,
+          }))
+        );
+        setCurrentWorkflowName(`Agentic Plan ${projection.sessionId}`);
+        toast.success("Agentic planning session started");
       } catch (error) {
-        console.error("Failed to generate workflow:", error);
-        toast.error("Failed to generate workflow");
+        console.error("Failed to start agentic planning:", error);
+        toast.error("Failed to start agentic planning");
       } finally {
         setIsGenerating(false);
       }
@@ -438,6 +470,15 @@ const WorkflowEditor = ({ params }: WorkflowPageProps) => {
         },
       }));
 
+      setSelectedNode(null);
+      setSelectedEdge(null);
+      setSelectedExecutionId(null);
+      setCurrentExecutionId(null);
+      setExecutionLogs({});
+      setLastExecutionLogs({ logs: {}, workflowId: null });
+      setPendingIntegrationNodes(new Set<string>());
+      setNewlyCreatedNodeId(null);
+      setIsSaving(false);
       setNodes(nodesWithIdleStatus);
       setEdges(workflow.edges);
       setCurrentWorkflowId(workflow.id);
@@ -472,6 +513,10 @@ const WorkflowEditor = ({ params }: WorkflowPageProps) => {
         setNewlyCreatedNodeId(emptyAction.id);
       }
     } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        setWorkflowNotFound(true);
+        return;
+      }
       console.error("Failed to load workflow:", error);
       setWorkflowNotFound(true);
     }
@@ -491,8 +536,15 @@ const WorkflowEditor = ({ params }: WorkflowPageProps) => {
     setWorkflowNotFound,
     setCurrentWorkflowDescription,
     setSelectedNode,
+    setSelectedEdge,
+    setSelectedExecutionId,
+    setCurrentExecutionId,
+    setExecutionLogs,
+    setLastExecutionLogs,
+    setPendingIntegrationNodes,
     setActiveTab,
     setNewlyCreatedNodeId,
+    setIsSaving,
     hydrateListingAtoms,
   ]);
 
@@ -512,6 +564,19 @@ const WorkflowEditor = ({ params }: WorkflowPageProps) => {
       const isGeneratingParam = searchParams?.get("generating") === "true";
       const storedPrompt = sessionStorage.getItem("ai-prompt");
       const storedWorkflowId = sessionStorage.getItem("generating-workflow-id");
+
+      if (currentWorkflowId !== workflowId) {
+        setNodes([]);
+        setEdges([]);
+        setSelectedNode(null);
+        setSelectedEdge(null);
+        setSelectedExecutionId(null);
+        setCurrentExecutionId(null);
+        setExecutionLogs({});
+        setLastExecutionLogs({ logs: {}, workflowId: null });
+        setPendingIntegrationNodes(new Set<string>());
+        setNewlyCreatedNodeId(null);
+      }
 
       // Check if state is already loaded for this workflow
       if (currentWorkflowId === workflowId && nodes.length > 0) {
@@ -538,6 +603,16 @@ const WorkflowEditor = ({ params }: WorkflowPageProps) => {
     searchParams,
     currentWorkflowId,
     nodes.length,
+    setNodes,
+    setEdges,
+    setSelectedNode,
+    setSelectedEdge,
+    setSelectedExecutionId,
+    setCurrentExecutionId,
+    setExecutionLogs,
+    setLastExecutionLogs,
+    setPendingIntegrationNodes,
+    setNewlyCreatedNodeId,
     generateWorkflowFromAI,
     loadExistingWorkflow,
   ]);
@@ -621,7 +696,10 @@ const WorkflowEditor = ({ params }: WorkflowPageProps) => {
     }
     setIsSaving(true);
     try {
-      await api.workflow.update(currentWorkflowId, { nodes, edges });
+      await api.workflow.update(
+        currentWorkflowId,
+        filterBuilderPreviewGraph({ nodes, edges })
+      );
       setHasUnsavedChanges(false);
     } catch (error) {
       console.error("Failed to save workflow:", error);

@@ -2,14 +2,20 @@
 
 import type { Edge, Node, XYPosition } from "@xyflow/react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Link2Off, Plus, Trash2 } from "lucide-react";
+import { Link2Off, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { nanoid } from "nanoid";
 import { useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { ConfirmOverlay } from "@/components/overlays/confirm-overlay";
 import { useOverlay } from "@/components/overlays/overlay-provider";
+import {
+  builderProjectionStateAtom,
+  regenerateBuilderNodeAtom,
+} from "@/lib/agentic-builder/store";
 import { cn } from "@/lib/utils";
 import {
   addNodeAtom,
+  currentWorkflowIdAtom,
   deleteEdgeAtom,
   deleteNodeAtom,
   nodesAtom,
@@ -38,9 +44,16 @@ export function WorkflowContextMenu({
   onClose,
 }: WorkflowContextMenuProps) {
   const nodes = useAtomValue(nodesAtom);
+  const builderProjectionState = useAtomValue(builderProjectionStateAtom);
+  const currentWorkflowId = useAtomValue(currentWorkflowIdAtom);
+  const builderProjection =
+    builderProjectionState.workflowId === currentWorkflowId
+      ? builderProjectionState.projection
+      : null;
   const deleteNode = useSetAtom(deleteNodeAtom);
   const deleteEdge = useSetAtom(deleteEdgeAtom);
   const addNode = useSetAtom(addNodeAtom);
+  const regenerateBuilderNode = useSetAtom(regenerateBuilderNodeAtom);
   const setSelectedNode = useSetAtom(selectedNodeAtom);
   const setActiveTab = useSetAtom(propertiesPanelActiveTabAtom);
   const { open: openOverlay } = useOverlay();
@@ -106,6 +119,21 @@ export function WorkflowContextMenu({
     onClose();
   }, [menuState, addNode, setSelectedNode, setActiveTab, onClose]);
 
+  const handleRegenerateDownstream = useCallback(async () => {
+    if (!menuState?.nodeId) {
+      return;
+    }
+    const nodeId = menuState.nodeId;
+    onClose();
+    try {
+      await regenerateBuilderNode(nodeId);
+      toast.success("Regenerated downstream preview");
+    } catch (error) {
+      console.error("Failed to regenerate downstream preview", error);
+      toast.error("Failed to regenerate downstream preview");
+    }
+  }, [menuState, onClose, regenerateBuilderNode]);
+
   // Close menu when clicking outside
   useEffect(() => {
     if (!menuState) {
@@ -152,6 +180,14 @@ export function WorkflowContextMenu({
     return node?.data.label || "Step";
   };
 
+  const node = menuState.nodeId
+    ? nodes.find((candidate) => candidate.id === menuState.nodeId)
+    : undefined;
+  const canRegenerateDownstream =
+    menuState.type === "node" &&
+    !!builderProjection &&
+    node?.data.config?.builderPreview !== true;
+
   return (
     <div
       className="fade-in-0 zoom-in-95 fixed z-50 min-w-[8rem] animate-in overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
@@ -162,12 +198,21 @@ export function WorkflowContextMenu({
       }}
     >
       {menuState.type === "node" && (
-        <MenuItem
-          icon={<Trash2 className="size-4" />}
-          label={`Delete ${getNodeLabel()}`}
-          onClick={handleDeleteNode}
-          variant="destructive"
-        />
+        <>
+          {canRegenerateDownstream && (
+            <MenuItem
+              icon={<RefreshCw className="size-4" />}
+              label="Regenerate downstream"
+              onClick={handleRegenerateDownstream}
+            />
+          )}
+          <MenuItem
+            icon={<Trash2 className="size-4" />}
+            label={`Delete ${getNodeLabel()}`}
+            onClick={handleDeleteNode}
+            variant="destructive"
+          />
+        </>
       )}
 
       {menuState.type === "edge" && (

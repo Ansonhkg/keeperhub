@@ -313,6 +313,21 @@ function sanitizeEdge(raw: Record<string, unknown>): Record<string, unknown> {
   return edge;
 }
 
+function isPreviewNode(node: Record<string, unknown>): boolean {
+  const data = (node.data ?? {}) as Record<string, unknown>;
+  const config = (data.config ?? {}) as Record<string, unknown>;
+  return config.builderPreview === true;
+}
+
+function isPreviewEdge(edge: Record<string, unknown>): boolean {
+  const data = (edge.data ?? {}) as Record<string, unknown>;
+  return (
+    data.builderPreview === true ||
+    edge.type === "temporary" ||
+    (typeof edge.id === "string" && edge.id.startsWith("preview-"))
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Auto-layout
 // ---------------------------------------------------------------------------
@@ -340,8 +355,18 @@ export function sanitizeWorkflowData(
   nodes: Record<string, unknown>[];
   edges: Record<string, unknown>[];
 } {
-  const sanitizedNodes = nodes.map(sanitizeNode);
-  const sanitizedEdges = edges.map(sanitizeEdge);
+  const sanitizedNodes = nodes
+    .map(sanitizeNode)
+    .filter((node) => !isPreviewNode(node));
+  const nodeIds = new Set(sanitizedNodes.map((node) => node.id));
+  const sanitizedEdges = edges
+    .map(sanitizeEdge)
+    .filter(
+      (edge) =>
+        !isPreviewEdge(edge) &&
+        nodeIds.has(edge.source) &&
+        nodeIds.has(edge.target)
+    );
 
   // Apply auto-layout when no meaningful positions were provided
   if (needsAutoLayout(sanitizedNodes)) {

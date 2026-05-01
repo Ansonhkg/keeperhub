@@ -1,0 +1,6 @@
+{
+  "name": "entity-extractor",
+  "version": "1.0.0",
+  "placeholders": ["intent"],
+  "outputSchema": "EntityExtractionResult"
+}

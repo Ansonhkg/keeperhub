@@ -145,3 +145,6 @@ packages/*/dist/
 reports/
 
 .mcp.json
+packages/agentic-builder/node_modules
+output/playwright
+drizzle

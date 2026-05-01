@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["esnext", "dom"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "paths": {
+      "@keeperhub/builder-dag/branch": ["../builder-dag/src/branch.ts"],
+      "@keeperhub/builder-dag/commit-graph": [
+        "../builder-dag/src/commit-graph.ts"
+      ],
+      "@keeperhub/builder-dag/fork": ["../builder-dag/src/fork.ts"],
+      "@keeperhub/builder-dag/projection": ["../builder-dag/src/projection.ts"],
+      "@keeperhub/builder-dag/types": ["../builder-dag/src/types.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules"]
+}

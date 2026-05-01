@@ -22,7 +22,52 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@keeperhub/agentic-builder/domain": [
+        "./packages/agentic-builder/src/core/domain/all.ts"
+      ],
+      "@keeperhub/agentic-builder/events": [
+        "./packages/agentic-builder/src/core/events/builder-events.ts"
+      ],
+      "@keeperhub/agentic-builder/http": [
+        "./packages/agentic-builder/src/adapters/http/handlers.ts"
+      ],
+      "@keeperhub/agentic-builder/mcp": [
+        "./packages/agentic-builder/src/adapters/mcp/tools.ts"
+      ],
+      "@keeperhub/agentic-builder/ports": [
+        "./packages/agentic-builder/src/core/ports/all.ts"
+      ],
+      "@keeperhub/agentic-builder/runtime": [
+        "./packages/agentic-builder/src/core/services/runtime.ts"
+      ],
+      "@keeperhub/agentic-builder/schemas": [
+        "./packages/agentic-builder/src/core/schemas/all.ts"
+      ],
+      "@keeperhub/agentic-builder/templates": [
+        "./packages/agentic-builder/src/core/templates/ai-sdk-template-runner.ts"
+      ],
+      "@keeperhub/agentic-builder/template-runner": [
+        "./packages/agentic-builder/src/core/templates/ai-sdk-template-runner.ts"
+      ],
+      "@keeperhub/agentic-builder/ai-sdk": [
+        "./packages/agentic-builder/src/core/templates/ai-sdk-json-template-runner.ts"
+      ],
+      "@keeperhub/builder-dag/branch": ["./packages/builder-dag/src/branch.ts"],
+      "@keeperhub/builder-dag/commit-graph": [
+        "./packages/builder-dag/src/commit-graph.ts"
+      ],
+      "@keeperhub/builder-dag/commit-store": [
+        "./packages/builder-dag/src/commit-store.ts"
+      ],
+      "@keeperhub/builder-dag/fork": ["./packages/builder-dag/src/fork.ts"],
+      "@keeperhub/builder-dag/projection": [
+        "./packages/builder-dag/src/projection.ts"
+      ],
+      "@keeperhub/builder-dag/schemas": [
+        "./packages/builder-dag/src/schemas.ts"
+      ],
+      "@keeperhub/builder-dag/types": ["./packages/builder-dag/src/types.ts"]
     },
     "strictNullChecks": true
   },

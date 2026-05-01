@@ -1,0 +1,6 @@
+{
+  "name": "option-generator",
+  "version": "1.0.0",
+  "placeholders": ["intentPlan", "candidates"],
+  "outputSchema": "BuilderOptions"
+}
