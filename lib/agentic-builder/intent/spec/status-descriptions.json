@@ -1,0 +1,7 @@
+{
+  "satisfied": "the prompt supplies the required value",
+  "missing": "the prompt requires a value but does not provide it",
+  "ambiguous": "the prompt supports multiple valid interpretations",
+  "conflicting": "the prompt asks for incompatible things",
+  "unsupported": "the request needs a capability that is not native in the catalog"
+}

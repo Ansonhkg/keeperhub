@@ -1,0 +1,11 @@
+[
+  "Do not create canvas nodes.",
+  "Do not create edges.",
+  "Do not emit JSONL operations.",
+  "Do not convert a missing native capability into HTTP automatically.",
+  "If a native capability is missing, represent it as a custom capability requirement.",
+  "Ask questions only through unresolved requirements.",
+  "Keep \"or\" as alternatives.",
+  "Keep \"and\" as multiple required outputs or tasks.",
+  "Treat \"about\" as message subject unless the surrounding text asks to use that provider."
+]

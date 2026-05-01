@@ -1,0 +1,5 @@
+{
+  "requirementStatusGuide": "- satisfied: the prompt supplies the required value.\n- missing: the prompt requires a value but does not provide it.\n- ambiguous: the prompt supports multiple valid interpretations.\n- conflicting: the prompt asks for incompatible things.\n- unsupported: the request needs a capability that is not native in the catalog.",
+  "requirementKindGuide": "- trigger\n- schedule\n- temporal_window\n- read_data\n- state\n- comparison\n- condition\n- branch\n- notification\n- write_action\n- custom_capability",
+  "builderRuleGuide": "- Do not create canvas nodes.\n- Do not create edges.\n- Do not emit JSONL operations.\n- Do not convert a missing native capability into HTTP automatically.\n- If a native capability is missing, represent it as a custom capability requirement.\n- Ask questions only through unresolved requirements.\n- Keep \"or\" as alternatives.\n- Keep \"and\" as multiple required outputs or tasks.\n- Treat \"about\" as message subject unless the surrounding text asks to use that provider."
+}

@@ -1,0 +1,23 @@
+{
+  "requirementStatuses": [
+    "satisfied",
+    "missing",
+    "ambiguous",
+    "conflicting",
+    "unsupported"
+  ],
+  "requirementKinds": [
+    "trigger",
+    "schedule",
+    "temporal_window",
+    "read_data",
+    "state",
+    "comparison",
+    "condition",
+    "branch",
+    "notification",
+    "write_action",
+    "custom_capability"
+  ],
+  "intentConnectors": ["and", "or", "then", "via", "with", "about", "when"]
+}

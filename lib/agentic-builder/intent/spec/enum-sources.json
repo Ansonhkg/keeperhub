@@ -1,0 +1,19 @@
+{
+  "requirementStatuses": {
+    "from": "vocabulary",
+    "key": "requirementStatuses"
+  },
+  "unresolvedRequirementStatuses": {
+    "from": "vocabulary",
+    "key": "requirementStatuses",
+    "exclude": ["satisfied"]
+  },
+  "requirementKinds": {
+    "from": "vocabulary",
+    "key": "requirementKinds"
+  },
+  "intentConnectors": {
+    "from": "vocabulary",
+    "key": "intentConnectors"
+  }
+}

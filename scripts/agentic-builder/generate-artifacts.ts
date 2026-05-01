@@ -1,0 +1,299 @@
+#!/usr/bin/env tsx
+
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const intentRoot = join(process.cwd(), "lib", "agentic-builder", "intent");
+const specRoot = join(intentRoot, "spec");
+const generatedRoot = join(intentRoot, "generated");
+
+const vocabularySpecPath = join(specRoot, "vocabulary.json");
+const enumSourcesSpecPath = join(specRoot, "enum-sources.json");
+const rulesSpecPath = join(specRoot, "rules.json");
+const promptGuidanceSpecPath = join(specRoot, "prompt-guidance.json");
+const schemaSpecPath = join(specRoot, "builder-intent-draft.schema.json");
+const vocabularyTemplatePath = join(specRoot, "vocabulary.ts.template");
+
+const vocabularyOutputPath = join(generatedRoot, "vocabulary.ts");
+const promptGuidanceOutputPath = join(generatedRoot, "prompt-guidance.json");
+const schemaOutputPath = join(generatedRoot, "builder-intent-draft.schema.json");
+
+type TemplateValues = Record<string, string>;
+type JsonRecord = Record<string, unknown>;
+
+const vocabulary = readStringArrayRecord(vocabularySpecPath);
+const rules = readStringRecord(rulesSpecPath);
+const enumSources = buildEnumSources(vocabulary);
+const descriptionCache = new Map<string, Record<string, string>>();
+
+mkdirSync(generatedRoot, { recursive: true });
+writeFileSync(vocabularyOutputPath, renderVocabularyArtifact(vocabulary));
+writeFileSync(
+  promptGuidanceOutputPath,
+  `${JSON.stringify(renderPromptGuidance(), null, 2)}\n`
+);
+writeFileSync(schemaOutputPath, `${JSON.stringify(renderJsonSchema(), null, 2)}\n`);
+
+console.log(`Generated ${vocabularyOutputPath}`);
+console.log(`Generated ${promptGuidanceOutputPath}`);
+console.log(`Generated ${schemaOutputPath}`);
+
+function renderVocabularyArtifact(intentVocabulary: Record<string, readonly string[]>): string {
+  const template = readFileSync(vocabularyTemplatePath, "utf8");
+  const values = Object.fromEntries(
+    Object.entries({ ...intentVocabulary, ...enumSources }).map(([key, value]) => [
+      key,
+      JSON.stringify(value, null, 2),
+    ])
+  );
+  values.resolvedRequirementStatus = JSON.stringify(
+    requireStringRule("resolvedRequirementStatus")
+  );
+
+  return renderTextTemplate(template, values);
+}
+
+function renderPromptGuidance(): unknown {
+  const promptGuidanceSpec = readJsonFile(promptGuidanceSpecPath);
+  if (!isJsonRecord(promptGuidanceSpec)) {
+    throw new Error(`Expected JSON object in ${promptGuidanceSpecPath}`);
+  }
+
+  return Object.fromEntries(
+    Object.entries(promptGuidanceSpec).map(([key, spec]) => [
+      key,
+      renderPromptGuidanceValue(key, spec),
+    ])
+  );
+}
+
+function renderJsonSchema(): unknown {
+  return replaceEnumSources(readJsonFile(schemaSpecPath));
+}
+
+function replaceEnumSources(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceEnumSources(item));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const record = value as Record<string, unknown>;
+  const enumSource = record["x-keeperhub-enumSource"];
+
+  if (typeof enumSource === "string") {
+    if (!isEnumSource(enumSource)) {
+      throw new Error(`Unknown enum source '${enumSource}' in ${schemaSpecPath}`);
+    }
+
+    const { "x-keeperhub-enumSource": _ignored, ...rest } = record;
+    return {
+      ...replaceRecordValues(rest),
+      enum: enumSources[enumSource],
+    };
+  }
+
+  return replaceRecordValues(record);
+}
+
+function replaceRecordValues(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(record).map(([key, nestedValue]) => [
+      key,
+      replaceEnumSources(nestedValue),
+    ])
+  );
+}
+
+function renderTextTemplate(template: string, values: TemplateValues): string {
+  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => {
+    if (!Object.prototype.hasOwnProperty.call(values, key)) {
+      throw new Error(`Missing template value '${key}' in ${vocabularyTemplatePath}`);
+    }
+
+    return values[key] ?? "";
+  });
+}
+
+function readJsonFile(filePath: string): unknown {
+  return JSON.parse(readFileSync(filePath, "utf8")) as unknown;
+}
+
+function readStringArrayRecord(filePath: string): Record<string, readonly string[]> {
+  const value = readJsonFile(filePath);
+  if (!isJsonRecord(value)) {
+    throw new Error(`Expected JSON object in ${filePath}`);
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nestedValue]) => {
+      if (!isNonEmptyStringArray(nestedValue)) {
+        throw new Error(`Expected non-empty string array at '${key}' in ${filePath}`);
+      }
+
+      return [key, nestedValue];
+    })
+  );
+}
+
+function readStringArrayFile(filePath: string): readonly string[] {
+  const value = readJsonFile(filePath);
+  if (!isNonEmptyStringArray(value)) {
+    throw new Error(`Expected non-empty string array in ${filePath}`);
+  }
+
+  return value;
+}
+
+function readStringRecord(filePath: string): Record<string, string> {
+  const value = readJsonFile(filePath);
+  if (!isJsonRecord(value)) {
+    throw new Error(`Expected JSON object in ${filePath}`);
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nestedValue]) => {
+      if (typeof nestedValue !== "string" || nestedValue.length === 0) {
+        throw new Error(`Expected non-empty string at '${key}' in ${filePath}`);
+      }
+
+      return [key, nestedValue];
+    })
+  );
+}
+
+function renderPromptGuidanceValue(key: string, spec: unknown): string {
+  if (!isJsonRecord(spec) || typeof spec.kind !== "string") {
+    throw new Error(`Invalid prompt guidance '${key}' in ${promptGuidanceSpecPath}`);
+  }
+
+  if (spec.kind === "source-list") {
+    if (typeof spec.source !== "string" || spec.source.length === 0) {
+      throw new Error(`Invalid list source for prompt guidance '${key}'`);
+    }
+
+    return readStringArraySource(spec.source)
+      .map((value) => `- ${value}`)
+      .join("\n");
+  }
+
+  if (typeof spec.enumSource !== "string" || !isEnumSource(spec.enumSource)) {
+    throw new Error(`Invalid enum source for prompt guidance '${key}'`);
+  }
+
+  const values = enumSources[spec.enumSource];
+
+  if (spec.kind === "list") {
+    return values.map((value) => `- ${value}`).join("\n");
+  }
+
+  if (spec.kind === "described-list") {
+    if (typeof spec.descriptions !== "string" || spec.descriptions.length === 0) {
+      throw new Error(`Invalid descriptions source for prompt guidance '${key}'`);
+    }
+
+    const descriptions = readDescriptionSource(spec.descriptions);
+
+    return values
+      .map((value) => {
+        const description = descriptions[value];
+        if (!description) {
+          throw new Error(`Missing description for '${value}'`);
+        }
+        return `- ${value}: ${description}.`;
+      })
+      .join("\n");
+  }
+
+  throw new Error(`Unknown prompt guidance kind '${spec.kind}' for '${key}'`);
+}
+
+function readDescriptionSource(sourceName: string): Record<string, string> {
+  const cached = descriptionCache.get(sourceName);
+  if (cached) {
+    return cached;
+  }
+
+  const descriptions = readStringRecord(join(specRoot, `${sourceName}.json`));
+  descriptionCache.set(sourceName, descriptions);
+  return descriptions;
+}
+
+function readStringArraySource(sourceName: string): readonly string[] {
+  return readStringArrayFile(join(specRoot, `${sourceName}.json`));
+}
+
+function isNonEmptyStringArray(value: unknown): value is [string, ...string[]] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => typeof item === "string" && item.length > 0)
+  );
+}
+
+function buildEnumSources(
+  vocabularyRecord: Record<string, readonly string[]>
+): Record<string, readonly string[]> {
+  const enumSourceSpec = readJsonFile(enumSourcesSpecPath);
+  if (!isJsonRecord(enumSourceSpec)) {
+    throw new Error(`Expected JSON object in ${enumSourcesSpecPath}`);
+  }
+
+  return Object.fromEntries(
+    Object.entries(enumSourceSpec).map(([sourceName, sourceSpec]) => [
+      sourceName,
+      resolveEnumSource(sourceName, sourceSpec, vocabularyRecord),
+    ])
+  );
+}
+
+function resolveEnumSource(
+  sourceName: string,
+  sourceSpec: unknown,
+  vocabularyRecord: Record<string, readonly string[]>
+): readonly string[] {
+  if (!isJsonRecord(sourceSpec)) {
+    throw new Error(`Expected enum source object for '${sourceName}'`);
+  }
+
+  if (sourceSpec.from !== "vocabulary" || typeof sourceSpec.key !== "string") {
+    throw new Error(`Invalid enum source '${sourceName}' in ${enumSourcesSpecPath}`);
+  }
+
+  const values = vocabularyRecord[sourceSpec.key];
+  if (!values) {
+    throw new Error(
+      `Enum source '${sourceName}' references unknown vocabulary key '${sourceSpec.key}'`
+    );
+  }
+
+  const excluded = sourceSpec.exclude;
+  if (excluded === undefined) {
+    return values;
+  }
+
+  if (!Array.isArray(excluded) || !excluded.every((item) => typeof item === "string")) {
+    throw new Error(`Invalid exclude list for enum source '${sourceName}'`);
+  }
+
+  return values.filter((value) => !excluded.includes(value));
+}
+
+function isEnumSource(value: string): boolean {
+  return Object.prototype.hasOwnProperty.call(enumSources, value);
+}
+
+function requireStringRule(key: string): string {
+  const value = rules[key];
+  if (!value) {
+    throw new Error(`Missing required rule '${key}' in ${rulesSpecPath}`);
+  }
+
+  return value;
+}
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}

@@ -1,0 +1,12 @@
+{
+  "expectedName": "keeperhub-intent-decomposer",
+  "requiredPlaceholders": [
+    "intentSchema",
+    "requirementStatusGuide",
+    "requirementKindGuide",
+    "builderRuleGuide",
+    "capabilityCatalogSummary",
+    "contextSummary",
+    "userPrompt"
+  ]
+}

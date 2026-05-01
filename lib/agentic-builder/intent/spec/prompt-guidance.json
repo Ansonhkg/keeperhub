@@ -1,0 +1,15 @@
+{
+  "requirementStatusGuide": {
+    "kind": "described-list",
+    "enumSource": "requirementStatuses",
+    "descriptions": "status-descriptions"
+  },
+  "requirementKindGuide": {
+    "kind": "list",
+    "enumSource": "requirementKinds"
+  },
+  "builderRuleGuide": {
+    "kind": "source-list",
+    "source": "prompt-rules"
+  }
+}
