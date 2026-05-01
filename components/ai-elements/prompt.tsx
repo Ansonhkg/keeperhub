@@ -13,8 +13,8 @@ import {
   answerBuilderProjectionQuestionAtom,
   builderProjectionAtom,
   clearBuilderProjectionHighlightAtom,
+  commitBuilderProjectionOptionAtom,
   rejectBuilderProjectionOptionAtom,
-  selectBuilderProjectionOptionAtom,
   setBuilderProjectionHighlightAtom,
 } from "@/lib/agentic-builder/projection/store";
 import { dedupeEdges } from "@/lib/workflow/editor/edge-helpers";
@@ -37,7 +37,7 @@ export function AIPrompt({ workflowId, onWorkflowCreated }: AIPromptProps) {
   const builderProjection = useAtomValue(builderProjectionAtom);
   const [, setBuilderHighlight] = useAtom(setBuilderProjectionHighlightAtom);
   const [, clearBuilderHighlight] = useAtom(clearBuilderProjectionHighlightAtom);
-  const [, selectBuilderOption] = useAtom(selectBuilderProjectionOptionAtom);
+  const [, commitBuilderOption] = useAtom(commitBuilderProjectionOptionAtom);
   const [, rejectBuilderOption] = useAtom(rejectBuilderProjectionOptionAtom);
   const [, answerBuilderQuestion] = useAtom(answerBuilderProjectionQuestionAtom);
   const [prompt, setPrompt] = useState("");
@@ -326,7 +326,7 @@ export function AIPrompt({ workflowId, onWorkflowCreated }: AIPromptProps) {
           onRequestNativeFeature={() => {
             toast.info("Native feature request noted");
           }}
-          onSelectOption={selectBuilderOption}
+          onSelectOption={commitBuilderOption}
           projection={builderProjection}
         />
         <form

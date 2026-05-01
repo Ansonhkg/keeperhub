@@ -2,11 +2,18 @@ import { atom } from "jotai";
 import type {
   BuilderProjectionHighlight,
   BuilderProjection,
+  BuilderProjectionIssue,
   BuilderProjectionQuestion,
   WorkflowGraph,
 } from "./contracts";
+import { materializeBuilderProjection } from "@/lib/agentic-builder/materialization/materializer";
 import { projectWorkflowGraph } from "./graph";
-import { edgesAtom, nodesAtom } from "@/lib/workflow/store";
+import {
+  autosaveAtom,
+  edgesAtom,
+  hasUnsavedChangesAtom,
+  nodesAtom,
+} from "@/lib/workflow/store";
 
 export const builderProjectionAtom = atom<BuilderProjection | null>(null);
 export const builderProjectionHighlightAtom = atom<BuilderProjectionHighlight>({});
@@ -87,6 +94,47 @@ export const selectBuilderProjectionOptionAtom = atom(
   }
 );
 
+export const commitBuilderProjectionOptionAtom = atom(
+  null,
+  (get, set, optionId: string) => {
+    const projection = get(builderProjectionAtom);
+    if (!projection) {
+      return;
+    }
+
+    const result = materializeBuilderProjection({
+      projection: {
+        ...projection,
+        selectedOptionId: optionId,
+        status: "accepted",
+      },
+      realGraph: {
+        nodes: get(nodesAtom),
+        edges: get(edgesAtom),
+      },
+      optionId,
+    });
+
+    if (!result.validation.valid) {
+      set(builderProjectionAtom, {
+        ...projection,
+        selectedOptionId: optionId,
+        status: "invalid",
+        validationIssues: result.validation.issues.map(toProjectionIssue),
+      });
+      set(builderProjectionHighlightAtom, {});
+      return;
+    }
+
+    set(nodesAtom, result.graph.nodes);
+    set(edgesAtom, result.graph.edges);
+    set(builderProjectionAtom, null);
+    set(builderProjectionHighlightAtom, {});
+    set(hasUnsavedChangesAtom, true);
+    set(autosaveAtom, { immediate: true });
+  }
+);
+
 export const rejectBuilderProjectionOptionAtom = atom(
   null,
   (get, set, optionId: string) => {
@@ -107,6 +155,20 @@ export const rejectBuilderProjectionOptionAtom = atom(
 
 function appendUnique(values: string[], value: string): string[] {
   return values.includes(value) ? values : [...values, value];
+}
+
+function toProjectionIssue(issue: {
+  id: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+  requirementIds?: string[];
+}): BuilderProjectionIssue {
+  return {
+    id: issue.id,
+    severity: issue.severity,
+    message: issue.message,
+    requirementIds: issue.requirementIds,
+  };
 }
 
 export function questionsFromProjection(

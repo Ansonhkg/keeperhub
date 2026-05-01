@@ -11,6 +11,7 @@ import {
   builderProjectionAtom,
   clearBuilderProjectionAtom,
   clearBuilderProjectionHighlightAtom,
+  commitBuilderProjectionOptionAtom,
   rejectBuilderProjectionOptionAtom,
   renderedWorkflowEdgesAtom,
   renderedWorkflowNodesAtom,
@@ -108,6 +109,48 @@ describe("agentic builder projection store", () => {
 
     expect(store.get(builderProjectionAtom)).toBeNull();
   });
+
+  it("commits a valid selected option into real workflow state", () => {
+    const store = createStore();
+    store.set(nodesAtom, [node("trigger_1", "trigger")]);
+    store.set(edgesAtom, []);
+    store.set(
+      setBuilderProjectionAtom,
+      projection({ customProposalIds: [], questions: [] })
+    );
+
+    store.set(commitBuilderProjectionOptionAtom, "option_1");
+
+    expect(store.get(builderProjectionAtom)).toBeNull();
+    expect(store.get(nodesAtom).map((item) => item.id)).toEqual([
+      "trigger_1",
+      "preview_action_1",
+    ]);
+    expect(store.get(edgesAtom).map((item) => item.id)).toEqual(["preview_edge_1"]);
+    expect(store.get(nodesAtom)[1]?.data).not.toHaveProperty("builderPreview");
+  });
+
+  it("keeps preview state visible when commit is blocked", () => {
+    const store = createStore();
+    store.set(nodesAtom, [node("trigger_1", "trigger")]);
+    store.set(edgesAtom, []);
+    store.set(setBuilderProjectionAtom, projection());
+
+    store.set(commitBuilderProjectionOptionAtom, "option_1");
+
+    expect(store.get(builderProjectionAtom)).toMatchObject({
+      status: "invalid",
+      selectedOptionId: "option_1",
+    });
+    expect(store.get(builderProjectionAtom)?.validationIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: expect.stringContaining("blocking_question_unanswered"),
+        }),
+      ])
+    );
+    expect(store.get(nodesAtom).map((item) => item.id)).toEqual(["trigger_1"]);
+  });
 });
 
 function node(id: string, type: "trigger" | "action"): WorkflowNode {
@@ -118,6 +161,10 @@ function node(id: string, type: "trigger" | "action"): WorkflowNode {
     data: {
       label: id,
       type,
+      config:
+        type === "trigger"
+          ? { triggerType: "Manual" }
+          : { actionType: "HTTP Request" },
     },
   };
 }
@@ -128,6 +175,7 @@ function previewNode(id: string): BuilderPreviewNode {
     data: {
       label: id,
       type: "action",
+      config: { actionType: "HTTP Request" },
       builderPreview: true,
       builderProjectionId: "projection_1",
       builderBranchId: "branch_1",
@@ -152,7 +200,14 @@ function previewEdge(id: string): BuilderPreviewEdge {
   };
 }
 
-function projection(): BuilderProjection {
+function projection(
+  input: {
+    customProposalIds?: string[];
+    questions?: BuilderProjection["questions"];
+  } = {}
+): BuilderProjection {
+  const customProposalIds = input.customProposalIds ?? ["custom_1"];
+
   return {
     id: "projection_1",
     workflowId: "workflow_1",
@@ -187,12 +242,12 @@ function projection(): BuilderProjection {
         risk: "low",
         requirementIds: ["req_1"],
         capabilityMatchIds: ["match_1"],
-        customProposalIds: ["custom_1"],
+        customProposalIds,
         previewNodes: [previewNode("preview_action_1")],
         previewEdges: [previewEdge("preview_edge_1")],
       },
     ],
-    questions: [
+    questions: input.questions ?? [
       {
         id: "question_1",
         requirementId: "req_1",
