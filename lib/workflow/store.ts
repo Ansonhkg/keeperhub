@@ -1,6 +1,7 @@
 import type { Edge, EdgeChange, Node, NodeChange } from "@xyflow/react";
 import { applyEdgeChanges, applyNodeChanges } from "@xyflow/react";
 import { atom } from "jotai";
+import { stripBuilderPreviewGraph } from "@/lib/agentic-builder/projection/graph";
 import { computeAutoLayout } from "@/lib/workflow/editor/auto-layout";
 import { buildExecutionLogsMap } from "@/lib/workflow/editor/template-helpers";
 import { api } from "@/lib/api-client";
@@ -143,8 +144,10 @@ export const autosaveAtom = atom(
   null,
   async (get, set, options?: { immediate?: boolean }) => {
     const workflowId = get(currentWorkflowIdAtom);
-    const nodes = get(nodesAtom);
-    const edges = get(edgesAtom);
+    const { nodes, edges } = stripBuilderPreviewGraph({
+      nodes: get(nodesAtom),
+      edges: get(edgesAtom),
+    });
 
     // Only autosave if we have a workflow ID
     if (!workflowId) {
@@ -634,8 +637,10 @@ export const saveWorkflowAsAtom = atom(
     _set,
     { name, description }: { name: string; description?: string }
   ) => {
-    const nodes = get(nodesAtom);
-    const edges = get(edgesAtom);
+    const { nodes, edges } = stripBuilderPreviewGraph({
+      nodes: get(nodesAtom),
+      edges: get(edgesAtom),
+    });
 
     try {
       const workflow = await api.workflow.create({

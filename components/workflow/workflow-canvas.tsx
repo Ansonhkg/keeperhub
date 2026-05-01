@@ -27,6 +27,10 @@ import { PlayCircle, Zap } from "lucide-react";
 import { nanoid } from "nanoid";
 import { toast } from "sonner";
 import {
+  renderedWorkflowEdgesAtom,
+  renderedWorkflowNodesAtom,
+} from "@/lib/agentic-builder/projection/store";
+import {
   addNodeAtom,
   autoLayoutAtom,
   autosaveAtom,
@@ -100,6 +104,8 @@ export function WorkflowCanvas() {
   const isWorkflowRoute = pathname.startsWith("/workflows/");
   const [nodes, setNodes] = useAtom(nodesAtom);
   const [edges, setEdges] = useAtom(edgesAtom);
+  const renderedNodes = useAtomValue(renderedWorkflowNodesAtom);
+  const renderedEdges = useAtomValue(renderedWorkflowEdgesAtom);
   const [isGenerating] = useAtom(isGeneratingAtom);
   const currentWorkflowId = useAtomValue(currentWorkflowIdAtom);
   const [showMinimap] = useAtom(showMinimapAtom);
@@ -753,11 +759,11 @@ export function WorkflowCanvas() {
         connectionLineComponent={Connection}
         connectionMode={ConnectionMode.Strict}
         defaultEdgeOptions={{ type: "animated" }}
-        edges={edges}
+        edges={renderedEdges}
         edgeTypes={edgeTypes}
         elementsSelectable={!isGenerating}
         isValidConnection={isValidConnection}
-        nodes={nodes}
+        nodes={renderedNodes}
         nodesConnectable={!isGenerating}
         nodesDraggable={!isGenerating}
         nodeTypes={nodeTypes}
