@@ -1,0 +1,44 @@
+{
+  "and": {
+    "requiresAllTasks": true,
+    "createsOptionGroup": false,
+    "preservesOrder": false,
+    "bindsField": null
+  },
+  "or": {
+    "requiresAllTasks": false,
+    "createsOptionGroup": true,
+    "preservesOrder": false,
+    "bindsField": null
+  },
+  "then": {
+    "requiresAllTasks": true,
+    "createsOptionGroup": false,
+    "preservesOrder": true,
+    "bindsField": null
+  },
+  "via": {
+    "requiresAllTasks": true,
+    "createsOptionGroup": false,
+    "preservesOrder": false,
+    "bindsField": "provider"
+  },
+  "with": {
+    "requiresAllTasks": true,
+    "createsOptionGroup": false,
+    "preservesOrder": false,
+    "bindsField": "dataSource"
+  },
+  "about": {
+    "requiresAllTasks": true,
+    "createsOptionGroup": false,
+    "preservesOrder": false,
+    "bindsField": "subject"
+  },
+  "when": {
+    "requiresAllTasks": true,
+    "createsOptionGroup": false,
+    "preservesOrder": false,
+    "bindsField": "triggerOrCondition"
+  }
+}

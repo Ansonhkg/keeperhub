@@ -1,0 +1,14 @@
+{
+  "sourcePriority": ["native", "protocol", "system", "custom"],
+  "sources": {
+    "nativeAction": "native",
+    "protocolAction": "protocol",
+    "systemAction": "system"
+  },
+  "fallback": {
+    "missingCapabilityKind": "custom_node",
+    "missingCapabilityTitle": "Custom Node",
+    "requestNativeFeatureAction": true,
+    "genericHttpRequiresExplicitSelection": true
+  }
+}

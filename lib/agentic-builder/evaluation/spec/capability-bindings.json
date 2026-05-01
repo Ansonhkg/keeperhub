@@ -1,0 +1,72 @@
+{
+  "integrationBindings": {
+    "ai-gateway": {
+      "provider": "ai_gateway"
+    },
+    "clerk": {
+      "provider": "clerk"
+    },
+    "discord": {
+      "channel": "discord"
+    },
+    "resend": {
+      "channel": "email",
+      "provider": "resend"
+    },
+    "sendgrid": {
+      "channel": "email",
+      "provider": "sendgrid"
+    },
+    "slack": {
+      "channel": "slack"
+    },
+    "telegram": {
+      "channel": "telegram"
+    },
+    "v0": {
+      "provider": "v0"
+    },
+    "webflow": {
+      "provider": "webflow"
+    },
+    "webhook": {
+      "channel": "webhook",
+      "provider": "webhook"
+    }
+  },
+  "categoryBindings": {
+    "AI Gateway": {
+      "provider": "ai_gateway"
+    },
+    "Clerk": {
+      "provider": "clerk"
+    },
+    "Discord": {
+      "channel": "discord"
+    },
+    "Email": {
+      "channel": "email"
+    },
+    "Slack": {
+      "channel": "slack"
+    },
+    "Telegram": {
+      "channel": "telegram"
+    },
+    "Webhook": {
+      "channel": "webhook",
+      "provider": "webhook"
+    },
+    "Webflow": {
+      "provider": "webflow"
+    },
+    "v0": {
+      "provider": "v0"
+    }
+  },
+  "actionBindings": {
+    "code/run-code": {
+      "operation": "custom_code"
+    }
+  }
+}

@@ -1,0 +1,52 @@
+[
+  {
+    "id": "HTTP Request",
+    "label": "HTTP Request",
+    "description": "Make an HTTP request to any API",
+    "category": "System",
+    "capabilityIntent": {
+      "action": "http_request",
+      "operation": "request"
+    }
+  },
+  {
+    "id": "Database Query",
+    "label": "Database Query",
+    "description": "Query your database",
+    "category": "System",
+    "capabilityIntent": {
+      "action": "database_query",
+      "operation": "query"
+    }
+  },
+  {
+    "id": "Condition",
+    "label": "Condition",
+    "description": "Branch based on a condition",
+    "category": "System",
+    "capabilityIntent": {
+      "action": "condition",
+      "operation": "branch"
+    }
+  },
+  {
+    "id": "For Each",
+    "label": "For Each",
+    "description": "Loop over an array from a previous step",
+    "category": "System",
+    "capabilityIntent": {
+      "action": "for_each",
+      "operation": "loop"
+    }
+  },
+  {
+    "id": "Collect",
+    "label": "Collect",
+    "description": "Gather results from a For Each loop",
+    "category": "System",
+    "capabilityIntent": {
+      "action": "collect",
+      "operation": "aggregate"
+    }
+  }
+]
