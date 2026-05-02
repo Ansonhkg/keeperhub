@@ -16,6 +16,7 @@ export type BuilderCanvasProjection = {
 
 type ProjectionOptions = {
   readonly highlightedOptionId?: string | null;
+  readonly sourceText?: string;
 };
 
 const COMMITTED_X = 0;
@@ -50,19 +51,101 @@ function notificationActionTypeForStep(
 
   if (typeof channel === "string") {
     const normalizedChannel = channel.toLowerCase();
+    if (normalizedChannel.includes("webhook")) {
+      return "webhook/send-webhook";
+    }
     if (normalizedChannel.includes("slack")) {
-      return "Send Slack Message";
+      return "slack/send-message";
     }
     if (normalizedChannel.includes("telegram")) {
-      return "HTTP Request";
+      return "telegram/send-message";
     }
+  }
+
+  if (/\bwebhook\b|\bhttp\s+request\b/i.test(step.label)) {
+    return "webhook/send-webhook";
   }
 
   return "Send Email";
 }
 
+function extractFirstUrl(text: string): string | undefined {
+  return /\bhttps?:\/\/[^\s"'<>),]+/i.exec(text)?.[0];
+}
+
+function extractHttpMethod(text: string): string | undefined {
+  return /\b(GET|POST|PUT|PATCH|DELETE)\b/i.exec(text)?.[1]?.toUpperCase();
+}
+
+function extractJsonObjectAfterKeyword(text: string): string | undefined {
+  const keywordMatch = /\b(?:json\s+body|body|payload)\b/i.exec(text);
+  if (!keywordMatch) {
+    return undefined;
+  }
+
+  const start = text.indexOf("{", keywordMatch.index);
+  if (start === -1) {
+    return undefined;
+  }
+
+  let depth = 0;
+  let escaped = false;
+  let inString = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        const candidate = text.slice(start, index + 1);
+        try {
+          JSON.parse(candidate);
+          return candidate;
+        } catch {
+          return undefined;
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function webhookConfigFromText(text: string): Record<string, unknown> {
+  const webhookPayload = extractJsonObjectAfterKeyword(text);
+  return {
+    ...(extractFirstUrl(text) ? { webhookUrl: extractFirstUrl(text) } : {}),
+    webhookMethod: extractHttpMethod(text) ?? "POST",
+    ...(webhookPayload
+      ? {
+          webhookHeaders: JSON.stringify({
+            "Content-Type": "application/json",
+          }),
+          webhookPayload,
+        }
+      : {}),
+  };
+}
+
 function nativeActionConfigForOption(
-  option: BuilderOption | undefined
+  option: BuilderOption | undefined,
+  contextText = ""
 ): Record<string, unknown> | null {
   if (!option) {
     return null;
@@ -85,6 +168,9 @@ function nativeActionConfigForOption(
     if (field.defaultValue !== undefined) {
       config[field.key] = field.defaultValue;
     }
+  }
+  if (action.id === "webhook/send-webhook") {
+    Object.assign(config, webhookConfigFromText(contextText));
   }
   return config;
 }
@@ -257,7 +343,8 @@ function conditionActionConfigForStep(
 function configForStep(
   step: IntentStep,
   options: readonly BuilderOption[],
-  questions: readonly OpenQuestion[]
+  questions: readonly OpenQuestion[],
+  sourceText?: string
 ): Record<string, unknown> {
   if (step.kind === "trigger") {
     return {
@@ -267,8 +354,18 @@ function configForStep(
     };
   }
 
+  const nativeOption = nativeOptionForStep(step, options);
+  const stepContextText = [
+    sourceText,
+    step.label,
+    nativeOption?.title,
+    nativeOption?.rationale,
+  ]
+    .filter(Boolean)
+    .join("\n");
   const nativeConfig = nativeActionConfigForOption(
-    nativeOptionForStep(step, options)
+    nativeOption,
+    stepContextText
   );
   if (nativeConfig) {
     return {
@@ -286,13 +383,17 @@ function configForStep(
     missing_capability: "HTTP Request",
     notify: notificationActionTypeForStep(step, questions),
     read: "HTTP Request",
-    transform: "Execute Code",
+    transform: "code/run-code",
     trigger: "Manual",
     write: "HTTP Request",
   };
 
+  const actionType = actionTypeByKind[step.kind];
   return {
-    actionType: actionTypeByKind[step.kind],
+    actionType,
+    ...(actionType === "webhook/send-webhook"
+      ? webhookConfigFromText(stepContextText)
+      : {}),
     builderStepKind: step.kind,
   };
 }
@@ -307,6 +408,7 @@ function nodeForStep({
   options,
   previewDescription,
   questions,
+  sourceText,
   step,
   x,
   y,
@@ -322,6 +424,7 @@ function nodeForStep({
   readonly options: readonly BuilderOption[];
   readonly previewDescription?: string;
   readonly questions: readonly OpenQuestion[];
+  readonly sourceText?: string;
   readonly className?: string;
 }): WorkflowNode {
   const nodeType = workflowTypeForStep(step);
@@ -344,7 +447,7 @@ function nodeForStep({
     connectable: !isPreview,
     data: {
       config: {
-        ...configForStep(step, options, questions),
+        ...configForStep(step, options, questions, sourceText),
         ...(isPreview
           ? {
               builderPreview: true,
@@ -448,6 +551,7 @@ function previewNodesForBranch(
       optionId: branch.optionId,
       options: builderOptions,
       questions,
+      sourceText: options.sourceText,
       step,
       x:
         (basePosition?.x ?? COMMITTED_X + OPTION_LANE_X_GAP) +
@@ -688,7 +792,10 @@ export function projectBuilderToCanvas(
   const openOptions = allOpenOptions.filter((option) =>
     openOptionIds.has(option.id)
   );
-  const projectionOptions = { highlightedOptionId };
+  const projectionOptions = {
+    highlightedOptionId,
+    sourceText: options.sourceText,
+  };
   const committedSteps = new Map(
     projection.committed.nodes.map((step) => [step.id, step])
   );
@@ -713,6 +820,7 @@ export function projectBuilderToCanvas(
         isPreview: false,
         options: projection.options,
         questions: projection.questions,
+        sourceText: options.sourceText,
         step,
         x: position.x,
         y: position.y,
@@ -751,6 +859,7 @@ export function projectBuilderToCanvas(
       optionIndex: index + 1,
       options: [option],
       questions: projection.questions,
+      sourceText: options.sourceText,
       step,
       x: resolvedPosition.x,
       y: resolvedPosition.y,

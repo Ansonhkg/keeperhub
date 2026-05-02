@@ -12,6 +12,7 @@ import { db } from "@/lib/db";
 import { validateWorkflowIntegrations } from "@/lib/db/integrations";
 import { getOrgSlug } from "@/lib/db/org-helpers";
 import { workflowExecutions, workflows } from "@/lib/db/schema";
+import { getRuntimeReadinessIssues } from "@/lib/agentic-builder/runtime-readiness";
 import { executeWorkflow } from "@/lib/workflow-executor.workflow";
 import { startWorkflowTraceRun } from "@/lib/trace/workflow-trace";
 import { isTraceEnabled } from "@/lib/trace/feature-flag";
@@ -168,6 +169,20 @@ export const POST = withTracedApiHandler("POST /api/workflow/:workflowId/execute
       return NextResponse.json(
         { error: "Workflow contains invalid integration references" },
         { status: 403 }
+      );
+    }
+
+    const runtimeReadinessIssues = getRuntimeReadinessIssues({
+      edges: workflow.edges as WorkflowEdge[],
+      nodes: workflow.nodes as WorkflowNode[],
+    });
+    if (runtimeReadinessIssues.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Workflow is not ready to run",
+          issues: runtimeReadinessIssues,
+        },
+        { status: 400 }
       );
     }
 

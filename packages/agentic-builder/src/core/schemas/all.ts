@@ -144,6 +144,29 @@ export type DynamicRequirementCardinality = z.infer<
   typeof dynamicRequirementCardinalitySchema
 >;
 
+export const dynamicRequirementKindSchema = z.enum([
+  "asset.price.read",
+  "state.capture",
+  "state.reference",
+  "temporal.repeat",
+  "temporal.duration",
+  "condition.compare",
+  "condition.delta",
+  "notification.send",
+  "branch.true",
+  "branch.false",
+  "log.write",
+  "swap.execute",
+  "provider.select",
+  "operation.execute",
+  "resource.select",
+  "content.generate",
+  "safety.confirm",
+]);
+export type DynamicRequirementKind = z.infer<
+  typeof dynamicRequirementKindSchema
+>;
+
 export const dynamicRequirementQuestionSchema = z.object({
   id: z.string().min(1),
   prompt: z.string().min(1),
@@ -159,6 +182,7 @@ export type DynamicRequirementQuestion = z.infer<
 export const dynamicRequirementSchema = z.object({
   id: z.string().min(1),
   key: z.string().min(1),
+  requirementKind: dynamicRequirementKindSchema.optional(),
   label: z.string().min(1),
   status: intentRequirementStatusSchema,
   value: jsonValueSchema.optional(),

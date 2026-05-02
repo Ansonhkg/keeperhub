@@ -253,6 +253,8 @@ function run(input) {
   const sandbox = createContext({
     console: capturedConsole,
     fetch: sandboxedFetch,
+    setTimeout: setTimeout,
+    clearTimeout: clearTimeout,
 
     BigInt: BigInt, JSON: JSON, Math: Math, Date: Date, Array: Array,
     Object: Object, String: String, Number: Number, Boolean: Boolean,

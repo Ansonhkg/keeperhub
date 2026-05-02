@@ -1146,6 +1146,34 @@ describe("agentic builder runtime", () => {
         (question) => question.id === "question-notification-channel"
       )
     ).toBe(false);
+    expect(
+      projection.questions.some(
+        (question) => question.id === "question-webhook-url"
+      )
+    ).toBe(true);
+  });
+
+  it("replans with a webhook URL answer instead of treating webhook as a channel question", async () => {
+    const intentInputs: string[] = [];
+    const runtime = createBuilderRuntime(
+      createScenarioPorts(
+        [candidate("native-webhook/send-webhook", "Send Webhook")],
+        { intentInputs }
+      )
+    );
+    const projection = await runtime.startSession(
+      auth,
+      "Use webhook to notify me"
+    );
+
+    await runtime.answerQuestion(auth, projection.sessionId, {
+      answer: "http://127.0.0.1:4318/api/webhook/notify",
+      questionId: "question-webhook-url",
+    });
+
+    expect(intentInputs.at(-1)).toContain(
+      "Webhook URL: http://127.0.0.1:4318/api/webhook/notify"
+    );
   });
 
   it("does not ask generic channel questions for explicit notification alternatives", async () => {

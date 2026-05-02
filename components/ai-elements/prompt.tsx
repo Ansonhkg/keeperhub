@@ -20,7 +20,6 @@ import { api } from "@/lib/api-client";
 import {
   filterBuilderPreviewGraph,
   isBuilderPreviewEdge,
-  isBuilderPreviewNode,
   projectBuilderToCanvas,
 } from "@/lib/agentic-builder/canvas-projection";
 import {
@@ -28,6 +27,11 @@ import {
   clearBuilderProjectionAtom,
   setBuilderProjectionForWorkflowAtom,
 } from "@/lib/agentic-builder/store";
+import {
+  hasBuilderWorkflowContext,
+  workflowContextNodesForBuilder,
+} from "@/lib/agentic-builder/workflow-context";
+import { materializeBuilderProjectionToRuntime } from "@/lib/agentic-builder/runtime-materializer";
 import { dedupeEdges } from "@/lib/workflow/edge-helpers";
 import {
   currentWorkflowNameAtom,
@@ -223,6 +227,7 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
   const lastProjectedBuilderProjectionRef = useRef<BuilderProjection | null>(
     null
   );
+  const builderSourceTextRef = useRef<string | undefined>(undefined);
   const builderProjection =
     workflowId && builderProjectionState.workflowId === workflowId
       ? builderProjectionState.projection
@@ -263,9 +268,9 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
         return;
       }
 
-      const committedGraph = filterBuilderPreviewGraph(
-        projectBuilderToCanvas(projection)
-      );
+      const committedGraph = materializeBuilderProjectionToRuntime(projection, {
+        sourceText: builderSourceTextRef.current,
+      });
       const finalEdges = dedupeEdges(
         committedGraph.edges.map((edge) => ({
           ...edge,
@@ -281,11 +286,8 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
     [workflowId]
   );
 
-  // Filter out placeholder "add" nodes to get real nodes
-  const realNodes = nodes.filter(
-    (node) => node.type !== "add" && !isBuilderPreviewNode(node)
-  );
-  const hasNodes = realNodes.length > 0;
+  const contextNodes = workflowContextNodesForBuilder(nodes);
+  const hasWorkflowContext = hasBuilderWorkflowContext(nodes);
 
   useEffect(() => {
     setHighlightedOptionId(null);
@@ -295,6 +297,7 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
     setPrompt("");
     setHistoryIndex(null);
     historyDraftRef.current = "";
+    builderSourceTextRef.current = undefined;
   }, [workflowId]);
 
   useEffect(() => {
@@ -318,6 +321,7 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
 
     const projected = projectBuilderToCanvas(builderProjection, {
       highlightedOptionId,
+      sourceText: builderSourceTextRef.current,
     });
     setNodes(projected.nodes);
     setEdges(projected.edges);
@@ -481,16 +485,16 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
 
       try {
         // Send existing workflow data for context when modifying
-        const existingWorkflow = hasNodes
+        const existingWorkflow = hasWorkflowContext
           ? {
               edges: edges.filter((edge) => !isBuilderPreviewEdge(edge)),
               name: currentWorkflowName,
-              nodes: realNodes,
+              nodes: contextNodes,
             }
           : undefined;
 
         console.log("[AI Prompt] Generating workflow");
-        console.log("[AI Prompt] Has nodes:", hasNodes);
+        console.log("[AI Prompt] Has workflow context:", hasWorkflowContext);
         console.log("[AI Prompt] Sending existing workflow:", !!existingWorkflow);
         if (existingWorkflow) {
           console.log(
@@ -522,6 +526,7 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
           );
         });
         setActiveBuilderProjection(projection);
+        builderSourceTextRef.current = submittedPrompt;
         setHighlightedOptionId(null);
 
         console.log("[AI Prompt] Received builder projection");
@@ -565,7 +570,7 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
       addPromptToHistory,
       isGenerating,
       workflowId,
-      hasNodes,
+      hasWorkflowContext,
       nodes,
       edges,
       setIsGenerating,
@@ -573,6 +578,7 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
       setEdges,
       fitView,
       currentWorkflowName,
+      contextNodes,
       setActiveBuilderProjection,
     ]
   );
@@ -669,6 +675,14 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
           return;
         }
         const nextProjection = (await response.json()) as BuilderProjection;
+        if (questionId === "question-webhook-url") {
+          builderSourceTextRef.current = [
+            builderSourceTextRef.current,
+            `Webhook URL: ${answer}`,
+          ]
+            .filter(Boolean)
+            .join("\n\n");
+        }
         setActiveBuilderProjection(nextProjection);
         await persistCommittedProjection(nextProjection);
         setHighlightedOptionId(null);

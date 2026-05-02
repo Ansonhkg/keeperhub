@@ -7,6 +7,7 @@ import type {
   CatalogEvaluationResult,
   DecisionGroup,
   DynamicRequirement,
+  DynamicRequirementKind,
   IntentRequirement,
   IntentResolution,
 } from "../schemas/all";
@@ -280,10 +281,29 @@ function dynamicRequirementFromLegacy(
     label: requirement.type.replace(/_/g, " "),
     legacyConstraint: requirement.legacyConstraint,
     legacyType: requirement.type,
+    requirementKind: dynamicRequirementKindForLegacy(requirement),
     source: "planner",
     status: requirement.status,
     value: requirement.value,
   };
+}
+
+function dynamicRequirementKindForLegacy(
+  requirement: IntentRequirement
+): DynamicRequirementKind {
+  const typeToKind: Record<IntentRequirement["type"], DynamicRequirementKind> =
+    {
+      asset: "asset.price.read",
+      content_kind: "content.generate",
+      destructive_intent: "safety.confirm",
+      notification_channel: "notification.send",
+      operation:
+        requirement.value === "swap" ? "swap.execute" : "operation.execute",
+      provider: "provider.select",
+      resource: "resource.select",
+      schedule: "temporal.repeat",
+    };
+  return typeToKind[requirement.type];
 }
 
 function relationshipForCandidate(

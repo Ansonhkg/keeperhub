@@ -11,12 +11,18 @@ import {
   isBuilderPreviewNode,
   projectBuilderToCanvas,
 } from "@/lib/agentic-builder/canvas-projection";
+import { materializeBuilderProjectionToRuntime } from "@/lib/agentic-builder/runtime-materializer";
+import { getRuntimeReadinessIssues } from "@/lib/agentic-builder/runtime-readiness";
 import {
   builderProjectionAtom,
   builderProjectionStateAtom,
   clearBuilderProjectionAtom,
   setBuilderProjectionForWorkflowAtom,
 } from "@/lib/agentic-builder/store";
+import {
+  hasBuilderWorkflowContext,
+  workflowContextNodesForBuilder,
+} from "@/lib/agentic-builder/workflow-context";
 
 const require = createRequire(import.meta.url);
 const { JSDOM } = require("jsdom") as {
@@ -118,6 +124,278 @@ describe("agentic builder canvas-native UI", () => {
     store.set(clearBuilderProjectionAtom);
     expect(store.get(builderProjectionAtom)).toBeNull();
     expect(store.get(builderProjectionStateAtom).workflowId).toBeNull();
+  });
+
+  it("does not treat the blank workflow scaffold as builder context", () => {
+    const blankScaffold = [
+      {
+        data: {
+          config: { triggerType: "Manual" },
+          label: "Manual",
+          type: "trigger",
+        },
+        id: "trigger-1",
+        position: { x: 0, y: 0 },
+        type: "trigger",
+      },
+      {
+        data: {
+          config: {},
+          label: "Action",
+          type: "action",
+        },
+        id: "action-1",
+        position: { x: 360, y: 0 },
+        type: "action",
+      },
+    ] as const;
+
+    expect(hasBuilderWorkflowContext(blankScaffold)).toBe(false);
+    expect(workflowContextNodesForBuilder(blankScaffold)).toHaveLength(2);
+  });
+
+  it("uses configured workflow nodes as builder context", () => {
+    expect(
+      hasBuilderWorkflowContext([
+        {
+          data: {
+            config: { triggerType: "Manual" },
+            label: "Manual",
+            type: "trigger",
+          },
+          id: "trigger-1",
+          position: { x: 0, y: 0 },
+          type: "trigger",
+        },
+        {
+          data: {
+            config: { actionType: "chronicle/eth-usd-read-with-age" },
+            label: "Read ETH price",
+            type: "action",
+          },
+          id: "action-1",
+          position: { x: 360, y: 0 },
+          type: "action",
+        },
+      ])
+    ).toBe(true);
+  });
+
+  it("maps answered Telegram notifications to the native Telegram action", () => {
+    const canvasProjection = projectBuilderToCanvas({
+      ...projection,
+      committed: {
+        ...projection.committed,
+        nodes: [
+          ...projection.committed.nodes,
+          {
+            dependsOn: ["step-1"],
+            id: "notify-1",
+            kind: "notify",
+            label: "Notify me",
+            requiredEntityIds: [],
+            status: "ready",
+          },
+        ],
+      },
+      questions: [
+        {
+          answer: "Telegram",
+          answerType: "single_choice",
+          choices: ["Slack", "Email", "Telegram"],
+          id: "question-notification-channel-notify-1",
+          prompt: "Which notification channel should be used?",
+          stepId: "notify-1",
+          status: "answered",
+        },
+      ],
+    });
+
+    expect(
+      canvasProjection.nodes.find((node) => node.id === "notify-1")?.data.config
+        ?.actionType
+    ).toBe("telegram/send-message");
+  });
+
+  it("materializes builder projection through runtime graph cleanup", () => {
+    const runtimeGraph = materializeBuilderProjectionToRuntime({
+      ...projection,
+      committed: {
+        ...projection.committed,
+        nodes: [
+          ...projection.committed.nodes,
+          {
+            dependsOn: ["step-1"],
+            id: "notify-1",
+            kind: "notify",
+            label: "Notify me",
+            requiredEntityIds: [],
+            status: "ready",
+          },
+        ],
+      },
+      questions: [
+        {
+          answer: "Slack",
+          answerType: "single_choice",
+          choices: ["Slack", "Email", "Telegram"],
+          id: "question-notification-channel-notify-1",
+          prompt: "Which notification channel should be used?",
+          stepId: "notify-1",
+          status: "answered",
+        },
+      ],
+    });
+    const notifyConfig = runtimeGraph.nodes.find(
+      (node) => node.id === "notify-1"
+    )?.data.config;
+
+    expect(notifyConfig?.actionType).toBe("slack/send-message");
+    expect(notifyConfig).not.toHaveProperty("builderStepKind");
+    expect(runtimeGraph.nodes.some(isBuilderPreviewNode)).toBe(false);
+  });
+
+  it("materializes native webhook decisions with URL and JSON payload from source text", () => {
+    const runtimeGraph = materializeBuilderProjectionToRuntime(
+      {
+        ...projection,
+        committed: {
+          ...projection.committed,
+          nodes: [
+            ...projection.committed.nodes,
+            {
+              dependsOn: ["step-1"],
+              id: "notify-1",
+              kind: "notify",
+              label:
+                "Send webhook POST request to http://127.0.0.1:4318/api/webhook/notify",
+              requiredEntityIds: [],
+              status: "ready",
+            },
+          ],
+        },
+        options: [
+          {
+            ...projection.options[0],
+            candidateIds: ["native-webhook/send-webhook"],
+            id: "option-webhook",
+            patch: {
+              ...projection.options[0].patch,
+              ops: [
+                {
+                  changes: { label: "Send webhook via native webhook action" },
+                  op: "update_step",
+                  stepId: "notify-1",
+                },
+              ],
+            },
+            stepId: "notify-1",
+            title: "Send webhook via native webhook action",
+          },
+        ],
+      },
+      {
+        sourceText:
+          'When manually run, send a webhook POST request to http://127.0.0.1:4318/api/webhook/notify with JSON body {"message":"KeeperHub webhook workflow test"}.',
+      }
+    );
+    const notifyConfig = runtimeGraph.nodes.find(
+      (node) => node.id === "notify-1"
+    )?.data.config;
+
+    expect(notifyConfig).toMatchObject({
+      actionType: "webhook/send-webhook",
+      webhookMethod: "POST",
+      webhookPayload: '{"message":"KeeperHub webhook workflow test"}',
+      webhookUrl: "http://127.0.0.1:4318/api/webhook/notify",
+    });
+  });
+
+  it("materializes repeated webhook price checks into executable runtime nodes", () => {
+    const runtimeGraph = materializeBuilderProjectionToRuntime(projection, {
+      sourceText:
+        "check the price of eth every 15 seconds, use webhook to notify me. do that for 3 times before finishing the workflow\n\nWebhook URL: http://127.0.0.1:4318/api/webhook/notify",
+    });
+
+    expect(runtimeGraph.nodes.map((node) => node.id)).toEqual([
+      "manual-trigger",
+      "repeat-price-checks",
+      "format-webhook-payload",
+      "send-webhook-update",
+    ]);
+    expect(
+      runtimeGraph.nodes.find((node) => node.id === "repeat-price-checks")?.data
+        .config
+    ).toMatchObject({
+      actionType: "For Each",
+      arraySource: "[1,2,3]",
+      maxIterations: 3,
+    });
+    expect(
+      runtimeGraph.nodes.find((node) => node.id === "format-webhook-payload")
+        ?.data.config?.code
+    ).toContain("setTimeout(resolve, delayMs)");
+    expect(
+      runtimeGraph.nodes.find((node) => node.id === "format-webhook-payload")
+        ?.data.config?.code
+    ).toContain("/ETH-USD/spot");
+    expect(
+      runtimeGraph.nodes.find((node) => node.id === "send-webhook-update")?.data
+        .config
+    ).toMatchObject({
+      actionType: "webhook/send-webhook",
+      webhookMethod: "POST",
+      webhookUrl: "http://127.0.0.1:4318/api/webhook/notify",
+    });
+    expect(getRuntimeReadinessIssues(runtimeGraph)).toEqual([]);
+  });
+
+  it("reports runtime blockers for unresolved builder-only workflow state", () => {
+    const issues = getRuntimeReadinessIssues({
+      edges: [],
+      nodes: [
+        {
+          data: {
+            config: {
+              actionType: "Condition",
+              builderConditionNeedsAnswer: true,
+            },
+            label: "Check whether ETH moved significantly",
+            type: "action",
+          },
+          id: "condition-1",
+          position: { x: 0, y: 0 },
+          type: "action",
+        },
+        {
+          data: {
+            config: {
+              actionType: "code/run-code",
+              builderPreview: true,
+            },
+            label: "Preview code",
+            type: "action",
+          },
+          id: "preview-1",
+          position: { x: 360, y: 0 },
+          type: "action",
+        },
+        {
+          data: {
+            config: { actionType: "Execute Code" },
+            label: "Legacy builder transform",
+            type: "action",
+          },
+          id: "code-1",
+          position: { x: 720, y: 0 },
+          type: "action",
+        },
+      ],
+    });
+
+    expect(issues.map((issue) => issue.nodeId)).toContain("condition-1");
+    expect(issues.map((issue) => issue.nodeId)).toContain("preview-1");
+    expect(issues.map((issue) => issue.nodeId)).toContain("code-1");
   });
 
   it("projects committed and preview branches into workflow canvas graph elements", () => {
@@ -540,7 +818,7 @@ describe("agentic builder canvas-native UI", () => {
     expect(
       canvasProjection.nodes.find((node) => node.id === "step-notify")?.data
         .config
-    ).toMatchObject({ actionType: "Send Slack Message" });
+    ).toMatchObject({ actionType: "slack/send-message" });
   });
 
   it("does not project empty condition config while condition criteria is unresolved", () => {

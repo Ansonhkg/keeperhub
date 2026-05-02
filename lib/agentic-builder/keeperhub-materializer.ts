@@ -1,21 +1,16 @@
 import { createHash } from "node:crypto";
 import type { MaterializeWorkflowPort } from "@keeperhub/agentic-builder/ports";
 import { and, eq } from "drizzle-orm";
-import {
-  filterBuilderPreviewGraph,
-  projectBuilderToCanvas,
-} from "@/lib/agentic-builder/canvas-projection";
+import { materializeBuilderProjectionToRuntime } from "@/lib/agentic-builder/runtime-materializer";
 import { db } from "@/lib/db";
 import { builderMaterializations, workflows } from "@/lib/db/schema";
-import { sanitizeWorkflowData } from "@/lib/workflow/sanitize-nodes";
 
 function toWorkflowNodes(
   projection: Parameters<
     MaterializeWorkflowPort["materialize"]
   >[0]["projection"]
 ) {
-  const graph = filterBuilderPreviewGraph(projectBuilderToCanvas(projection));
-  return sanitizeWorkflowData(graph.nodes, graph.edges).nodes;
+  return materializeBuilderProjectionToRuntime(projection).nodes;
 }
 
 function toWorkflowEdges(
@@ -23,8 +18,7 @@ function toWorkflowEdges(
     MaterializeWorkflowPort["materialize"]
   >[0]["projection"]
 ) {
-  const graph = filterBuilderPreviewGraph(projectBuilderToCanvas(projection));
-  return sanitizeWorkflowData(graph.nodes, graph.edges).edges;
+  return materializeBuilderProjectionToRuntime(projection).edges;
 }
 
 export function createKeeperHubWorkflowMaterializer(): MaterializeWorkflowPort {

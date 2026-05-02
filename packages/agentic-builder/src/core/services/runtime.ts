@@ -45,6 +45,7 @@ import {
   catalogCandidateSchema,
   entitySchema,
   type IntentPlan,
+  type IntentStep,
   intentPlanSchema,
   type MaterializeWorkflowInput,
   type MissingCapability,
@@ -379,7 +380,7 @@ export async function runIntentPlanner(
     },
     (output) =>
       zObject("entity extraction", output, (value) => ({
-        entities: entitySchema.array().parse(value.entities),
+        entities: entitySchema.array().parse(coerceEntities(value.entities)),
       }))
   );
   const planResult = await ports.ai.run(
@@ -393,7 +394,7 @@ export async function runIntentPlanner(
         workflowContext: context ?? "",
       },
     },
-    (output) => intentPlanSchema.parse(output)
+    (output) => intentPlanSchema.parse(coerceIntentPlanOutput(output))
   );
   const plan: IntentPlan = {
     ...planResult.output,
@@ -418,6 +419,116 @@ export async function runIntentPlanner(
     })
   );
   return plan;
+}
+
+function coerceEntities(value: unknown): unknown[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entity, index) => {
+    if (!entity || typeof entity !== "object" || Array.isArray(entity)) {
+      return [];
+    }
+    const record = entity as Record<string, unknown>;
+    return [
+      {
+        ...record,
+        canonicalValue:
+          record.canonicalValue === undefined
+            ? undefined
+            : String(record.canonicalValue),
+        confidence:
+          typeof record.confidence === "number" ? record.confidence : 0.5,
+        id: record.id === undefined ? `entity_${index + 1}` : String(record.id),
+        kind: record.kind === undefined ? "unknown" : String(record.kind),
+        label: record.label === undefined ? "Unknown" : String(record.label),
+      },
+    ];
+  });
+}
+
+function coerceIntentPlanOutput(output: unknown): unknown {
+  if (!output || typeof output !== "object" || Array.isArray(output)) {
+    return output;
+  }
+  const record = output as Record<string, unknown>;
+  return {
+    ...record,
+    entities: coerceEntities(record.entities),
+    id: record.id === undefined ? "intent_plan" : String(record.id),
+    openQuestionIds: Array.isArray(record.openQuestionIds)
+      ? record.openQuestionIds.map(String)
+      : [],
+    sourceText:
+      record.sourceText === undefined ? "" : String(record.sourceText),
+    steps: Array.isArray(record.steps)
+      ? record.steps.map((step, index) => {
+          if (!step || typeof step !== "object" || Array.isArray(step)) {
+            return step;
+          }
+          const stepRecord = step as Record<string, unknown>;
+          return {
+            ...stepRecord,
+            dependsOn: Array.isArray(stepRecord.dependsOn)
+              ? stepRecord.dependsOn.map(String)
+              : [],
+            id:
+              stepRecord.id === undefined
+                ? `step_${index + 1}`
+                : String(stepRecord.id),
+            kind: coerceIntentStepKind(stepRecord.kind, stepRecord.label),
+            label:
+              stepRecord.label === undefined
+                ? `Step ${index + 1}`
+                : String(stepRecord.label),
+            requiredEntityIds: Array.isArray(stepRecord.requiredEntityIds)
+              ? stepRecord.requiredEntityIds.map(String)
+              : [],
+          };
+        })
+      : [],
+  };
+}
+
+function coerceIntentStepKind(
+  kind: unknown,
+  label: unknown
+): IntentStep["kind"] {
+  const normalizedKind = String(kind ?? "").toLowerCase();
+  if (
+    [
+      "trigger",
+      "read",
+      "transform",
+      "condition",
+      "notify",
+      "write",
+      "missing_capability",
+    ].includes(normalizedKind)
+  ) {
+    return normalizedKind as IntentStep["kind"];
+  }
+  const normalizedLabel = String(label ?? "").toLowerCase();
+  if (/\b(every|schedule|manual|trigger|when)\b/.test(normalizedLabel)) {
+    return "trigger";
+  }
+  if (/\b(price|read|get|fetch|check)\b/.test(normalizedLabel)) {
+    return "read";
+  }
+  if (/\b(if|condition|threshold|below|above)\b/.test(normalizedLabel)) {
+    return "condition";
+  }
+  if (
+    /\b(notify|alert|webhook|message|email|slack|telegram)\b/.test(
+      normalizedLabel
+    )
+  ) {
+    return "notify";
+  }
+  if (/\b(write|swap|transfer|send transaction)\b/.test(normalizedLabel)) {
+    return "write";
+  }
+  return "transform";
 }
 
 export async function runCatalogSearch(
@@ -1793,6 +1904,7 @@ async function answerQuestion(
   if (
     answer.questionId === "question-candidate-clarification" ||
     answer.questionId === "question-notification-channel" ||
+    answer.questionId === "question-webhook-url" ||
     isConditionClarification
   ) {
     const isCandidateClarification =
@@ -1801,7 +1913,9 @@ async function answerQuestion(
       ? "Clarification"
       : isConditionClarification
         ? "Condition clarification"
-        : "Notification channel";
+        : answer.questionId === "question-webhook-url"
+          ? "Webhook URL"
+          : "Notification channel";
     const answerText = Array.isArray(answer.answer)
       ? answer.answer.join(", ")
       : answer.answer;

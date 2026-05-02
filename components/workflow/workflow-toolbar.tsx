@@ -41,6 +41,7 @@ import { BUILTIN_NODE_ID } from "@/lib/builtin-variables";
 import { isAnonymousUser } from "@/lib/is-anonymous";
 import { api, ApiError, type Project, type Tag } from "@/lib/api-client";
 import { filterBuilderPreviewGraph } from "@/lib/agentic-builder/canvas-projection";
+import { getRuntimeReadinessIssues } from "@/lib/agentic-builder/runtime-readiness";
 import { authClient, useSession } from "@/lib/auth-client";
 import { getCustomLogo } from "@/lib/extension-registry";
 import { integrationsAtom } from "@/lib/integrations-store";
@@ -685,16 +686,23 @@ function useWorkflowHandlers({
     const brokenRefs = getBrokenTemplateReferences(nodes);
     const missingFields = getMissingRequiredFields(nodes);
     const missingIntegrations = getMissingIntegrations(nodes, userIntegrations);
+    const runtimeReadinessIssues = getRuntimeReadinessIssues({
+      edges,
+      includeRequiredFields: false,
+      nodes,
+    });
 
     if (
       brokenRefs.length > 0 ||
       missingFields.length > 0 ||
-      missingIntegrations.length > 0
+      missingIntegrations.length > 0 ||
+      runtimeReadinessIssues.length > 0
     ) {
       return {
         brokenReferences: brokenRefs,
         missingRequiredFields: missingFields,
         missingIntegrations,
+        runtimeReadinessIssues,
       };
     }
     return null;
@@ -713,11 +721,13 @@ function useWorkflowHandlers({
     const issues = getWorkflowIssues();
 
     if (issues) {
+      const hasRuntimeBlockers =
+        (issues.runtimeReadinessIssues?.length ?? 0) > 0;
       openOverlay(WorkflowIssuesOverlay, {
         issues,
         onGoToStep: handleGoToStep,
-        onRunAnyway: onProceed,
-        actionLabel,
+        onRunAnyway: hasRuntimeBlockers ? () => undefined : onProceed,
+        actionLabel: hasRuntimeBlockers ? "Review First" : actionLabel,
       });
       return false;
     }

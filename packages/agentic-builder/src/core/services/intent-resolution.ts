@@ -2,6 +2,7 @@ import type {
   BuilderIntentIR,
   ContentKind,
   DynamicRequirement,
+  DynamicRequirementKind,
   IntentConstraint,
   IntentPlan,
   IntentRequirement,
@@ -197,6 +198,7 @@ export function resolveIntentConstraints(
   );
   const dynamicRequirements = [
     ...dynamicRequirementsFromLegacy(requirements, intentPlan.sourceText),
+    ...dynamicWebhookRequirements(intentPlan),
     ...dynamicConditionRequirements(
       intentPlan,
       requirements,
@@ -505,7 +507,10 @@ function dynamicConditionRequirements(
   intentIR: BuilderIntentIR | undefined
 ): DynamicRequirement[] {
   const explicitConditionSteps = intentPlan.steps.filter(
-    (step) => step.kind === "condition"
+    (step) =>
+      step.kind === "condition" &&
+      !isTemporalCountCondition(step.label) &&
+      !isOperationalGuardCondition(step.label)
   );
   const conditionSteps =
     explicitConditionSteps.length > 0
@@ -540,6 +545,10 @@ function dynamicConditionRequirements(
       id: `dynamic-condition-criteria-${step.id}`,
       key: "condition.criteria",
       label: "Condition Criteria",
+      requirementKind:
+        parsed?.kind === "absolute_delta"
+          ? ("condition.delta" as const)
+          : ("condition.compare" as const),
       source: "planner" as const,
     };
 
@@ -586,6 +595,38 @@ function conditionLikeText(text: string): boolean {
     hasAny(normalized, ["if", "when", "condition", "threshold"]) &&
     (hasVagueConditionText(text) || Boolean(parseConditionCriteria(text)))
   );
+}
+
+function isTemporalCountCondition(text: string): boolean {
+  const normalized = normalizeText(text);
+  return (
+    (hasAny(normalized, ["run", "repeat", "count", "times", "finish"]) &&
+      /\b\d+\s+times?\b/i.test(text)) ||
+    (hasAny(normalized, [
+      "count",
+      "loop",
+      "looping",
+      "notification",
+      "notifications",
+      "reached",
+    ]) &&
+      /\b\d+\b/.test(text)) ||
+    containsPhrase(normalized, "run 3 times")
+  );
+}
+
+function isOperationalGuardCondition(text: string): boolean {
+  const normalized = normalizeText(text);
+  return hasAny(normalized, [
+    "available",
+    "completed",
+    "failed",
+    "failure",
+    "fetched",
+    "read succeeded",
+    "succeeded",
+    "success",
+  ]);
 }
 
 function hasVagueConditionText(text: string): boolean {
@@ -659,7 +700,8 @@ function parseConditionCriteria(text: string): ParsedConditionCriteria | null {
 }
 
 function parseAbsoluteDeltaCriteria(
-  text: string
+  text: string,
+  assetPair?: { readonly base: string; readonly quote: string }
 ): Extract<ParsedConditionCriteria, { kind: "absolute_delta" }> | null {
   if (!/\b(?:cached|baseline|reference|initial|constant)\b/i.test(text)) {
     return null;
@@ -674,11 +716,14 @@ function parseAbsoluteDeltaCriteria(
   if (!match?.[1]) {
     return null;
   }
+  const pair = assetPair ?? assetPairFromText(text);
+  const base = pair?.base ?? "VALUE";
+  const quote = pair?.quote ?? "USD";
   return {
-    baselineRef: "baselineEthPrice",
-    freshRef: "freshEthPrice",
+    baselineRef: valueRefForAsset("baseline", base, quote),
+    freshRef: valueRefForAsset("fresh", base, quote),
     kind: "absolute_delta",
-    metric: "ETH/USD",
+    metric: `${base}/${quote}`,
     operator: ">=",
     threshold: Number(match[1]),
     unit: match[2]?.toUpperCase().replace("DOLLARS", "USD") ?? "USD",
@@ -746,10 +791,14 @@ function deriveBuilderIntentIR(
             ]
           : []
       );
+  const primaryAssetPair = explicitAssets[0];
   const usesCachedBaseline =
     hasAny(normalized, ["cache", "cached", "baseline", "reference"]) ||
     containsPhrase(normalized, "fixed constant");
-  const absoluteDelta = parseAbsoluteDeltaCriteria(sourceText);
+  const absoluteDelta = parseAbsoluteDeltaCriteria(
+    sourceText,
+    primaryAssetPair
+  );
   const intervalSeconds = extractSeconds(
     sourceText,
     /\bevery\s+(\d+)\s+seconds?\b/i
@@ -812,15 +861,27 @@ function deriveBuilderIntentIR(
     state: usesCachedBaseline
       ? [
           {
-            id: "baselineEthPrice",
+            id: valueRefForAsset(
+              "baseline",
+              primaryAssetPair?.base ?? "VALUE",
+              primaryAssetPair?.quote ?? "USD"
+            ),
             mutability: "constant",
-            source: "current ETH/USD price",
+            source: primaryAssetPair
+              ? `current ${primaryAssetPair.base}/${primaryAssetPair.quote} price`
+              : "current price",
             timing: "before_loop",
           },
           {
-            id: "freshEthPrice",
+            id: valueRefForAsset(
+              "fresh",
+              primaryAssetPair?.base ?? "VALUE",
+              primaryAssetPair?.quote ?? "USD"
+            ),
             mutability: "mutable",
-            source: "fresh ETH/USD price",
+            source: primaryAssetPair
+              ? `fresh ${primaryAssetPair.base}/${primaryAssetPair.quote} price`
+              : "fresh price",
             timing: "inside_loop",
           },
         ]
@@ -861,13 +922,14 @@ function dynamicRequirementsFromIntentIR(
       evidence,
       id: `dynamic-state-${item.id}`,
       key: `state.${item.id}`,
-      label:
-        item.id === "baselineEthPrice"
-          ? "Baseline ETH Price"
-          : "Fresh ETH Price",
+      label: labelForStateRequirement(item),
+      requirementKind:
+        item.timing === "before_loop"
+          ? ("state.capture" as const)
+          : ("state.reference" as const),
       source: "planner" as const,
       status: "satisfied" as const,
-      value: item,
+      value: jsonSafeValue(item),
     })),
     ...intentIR.temporal.map((item) => ({
       appliesTo: findStepIdByLabel(intentPlan, [
@@ -881,9 +943,12 @@ function dynamicRequirementsFromIntentIR(
       id: `dynamic-temporal-${item.id}`,
       key: "temporal.bounded_loop",
       label: "Bounded Polling Window",
+      requirementKind: item.durationSeconds
+        ? ("temporal.duration" as const)
+        : ("temporal.repeat" as const),
       source: "planner" as const,
       status: "unsupported" as const,
-      value: item,
+      value: jsonSafeValue(item),
     })),
     ...intentIR.branches.map((item) => ({
       appliesTo:
@@ -894,14 +959,76 @@ function dynamicRequirementsFromIntentIR(
       id: `dynamic-branch-${item.id}`,
       key: `branch.${item.when}`,
       label: item.when === "true" ? "True Branch" : "False Branch",
+      requirementKind:
+        item.when === "true"
+          ? ("branch.true" as const)
+          : ("branch.false" as const),
       source: "planner" as const,
       status:
         item.action === "log"
           ? ("unsupported" as const)
           : ("satisfied" as const),
-      value: item,
+      value: jsonSafeValue(item),
     })),
   ];
+}
+
+function jsonSafeValue<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map(jsonSafeValue) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([key, item]) =>
+        item === undefined ? [] : [[key, jsonSafeValue(item)]]
+      )
+    ) as T;
+  }
+  return value;
+}
+
+function dynamicWebhookRequirements(
+  intentPlan: IntentPlan
+): DynamicRequirement[] {
+  const normalized = normalizeText(intentPlan.sourceText);
+  if (
+    !hasAny(normalized, ["webhook"]) ||
+    /\bhttps?:\/\//i.test(intentPlan.sourceText)
+  ) {
+    return [];
+  }
+  const appliesTo = findStepIdByLabel(intentPlan, [
+    "webhook",
+    "notify",
+    "notification",
+    "alert",
+  ]);
+  return [
+    {
+      appliesTo,
+      cardinality: "single",
+      evidence: [{ source: "prompt", text: intentPlan.sourceText }],
+      id: "dynamic-webhook-url",
+      key: "notification.webhook.url",
+      label: "Webhook URL",
+      question: {
+        answerType: "text",
+        cardinality: "single",
+        id: "question-webhook-url",
+        prompt: "What webhook URL should receive the notification?",
+      },
+      requirementKind: "notification.send",
+      source: "planner",
+      status: "missing",
+    },
+  ];
+}
+
+function labelForStateRequirement(
+  item: NonNullable<BuilderIntentIR>["state"][number]
+): string {
+  const prefix = item.timing === "before_loop" ? "Baseline" : "Fresh";
+  return `${prefix} ${item.source.replace(/^current\s+/i, "").replace(/^fresh\s+/i, "")}`;
 }
 
 function findStepIdByLabel(
@@ -921,6 +1048,46 @@ function findStepIdByLabel(
 function extractSeconds(text: string, pattern: RegExp): number | undefined {
   const match = pattern.exec(text);
   return match?.[1] ? Number(match[1]) : undefined;
+}
+
+function assetPairFromText(
+  text: string
+): { readonly base: string; readonly quote: string } | undefined {
+  const explicitPair = findExplicitAssetPairs(text)[0];
+  if (explicitPair) {
+    return explicitPair;
+  }
+  const asset = findExplicitAssets(
+    {
+      entities: [],
+      id: "asset-pair-from-text",
+      openQuestionIds: [],
+      sourceText: text,
+      steps: [],
+    },
+    normalizeText(text)
+  )[0];
+  if (!asset) {
+    return undefined;
+  }
+  return {
+    base: asset.symbol,
+    quote: findQuoteForAsset(text, asset.symbol) ?? "USD",
+  };
+}
+
+function valueRefForAsset(prefix: string, base: string, quote: string): string {
+  return `${prefix}${toPascalIdentifier(base)}${toPascalIdentifier(quote)}Price`;
+}
+
+function toPascalIdentifier(value: string): string {
+  return value
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean)
+    .map(
+      (part) => `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`
+    )
+    .join("");
 }
 
 function assetLabelForQuestion(
@@ -988,6 +1155,7 @@ function dynamicRequirementsFromLegacy(
       legacyType: requirement.type,
       question: questionForDynamicRequirement(requirement, cardinality),
       source: "planner",
+      requirementKind: dynamicRequirementKindForLegacy(requirement),
       status:
         notificationMultiTarget && !hasAlternativeJoiner(sourceText)
           ? "satisfied"
@@ -998,6 +1166,24 @@ function dynamicRequirementsFromLegacy(
           : requirement.value,
     };
   });
+}
+
+function dynamicRequirementKindForLegacy(
+  requirement: IntentRequirement
+): DynamicRequirementKind {
+  const typeToKind: Record<IntentRequirement["type"], DynamicRequirementKind> =
+    {
+      asset: "asset.price.read",
+      content_kind: "content.generate",
+      destructive_intent: "safety.confirm",
+      notification_channel: "notification.send",
+      operation:
+        requirement.value === "swap" ? "swap.execute" : "operation.execute",
+      provider: "provider.select",
+      resource: "resource.select",
+      schedule: "temporal.repeat",
+    };
+  return typeToKind[requirement.type];
 }
 
 function dynamicKeyForLegacyRequirement(
@@ -1384,6 +1570,9 @@ function orderNotificationChannels(channels: readonly string[]): string[] {
 function explicitViaProviders(text: string): string[] {
   const direct = [
     ...text.matchAll(/\b(?:in|on|using|via|with)\s+([a-z][a-z0-9-]{1,30})\b/g),
+    ...text.matchAll(
+      /\buse\s+([a-z][a-z0-9-]{1,30})\s+to\s+(?:notify|alert|message|post|send)\b/g
+    ),
   ].flatMap((match) =>
     match[1] && !/^(?:a|an|the)$/.test(match[1])
       ? [normalizeProviderToken(match[1])]

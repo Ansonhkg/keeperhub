@@ -40,10 +40,18 @@ type MissingIntegration = {
   nodeNames: string[];
 };
 
+type RuntimeReadinessIssue = {
+  nodeId: string;
+  nodeLabel: string;
+  message: string;
+  fieldKey?: string;
+};
+
 type WorkflowIssues = {
   brokenReferences: BrokenReference[];
   missingRequiredFields: MissingRequiredField[];
   missingIntegrations: MissingIntegration[];
+  runtimeReadinessIssues?: RuntimeReadinessIssue[];
 };
 
 type WorkflowIssuesOverlayProps = OverlayComponentProps<{
@@ -69,13 +77,18 @@ export function WorkflowIssuesOverlay({
   const shouldUseManagedKeys =
     aiGatewayStatus?.enabled && aiGatewayStatus?.isVercelUser;
 
-  const { brokenReferences, missingRequiredFields, missingIntegrations } =
-    issues;
+  const {
+    brokenReferences,
+    missingRequiredFields,
+    missingIntegrations,
+    runtimeReadinessIssues = [],
+  } = issues;
 
   const totalIssues =
     brokenReferences.length +
     missingRequiredFields.length +
-    missingIntegrations.length;
+    missingIntegrations.length +
+    runtimeReadinessIssues.length;
 
   const handleGoToStep = (nodeId: string, fieldKey?: string) => {
     // Select the node and set tab (this is handled by onGoToStep)
@@ -136,6 +149,33 @@ export function WorkflowIssuesOverlay({
       </div>
 
       <div className="mt-4 space-y-4">
+        {/* Runtime Readiness Section */}
+        {runtimeReadinessIssues.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+              Not Ready To Run
+            </h4>
+            {runtimeReadinessIssues.map((issue, index) => (
+              <div key={`${issue.nodeId}-${issue.fieldKey ?? "node"}-${index}`}>
+                <p className="font-medium text-sm">{issue.nodeLabel}</p>
+                <div className="mt-1 flex items-center gap-3 py-0.5 pl-3">
+                  <p className="min-w-0 flex-1 text-muted-foreground text-sm">
+                    {issue.message}
+                  </p>
+                  <Button
+                    className="shrink-0"
+                    onClick={() => handleGoToStep(issue.nodeId, issue.fieldKey)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Fix
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Missing Connections Section */}
         {missingIntegrations.length > 0 && (
           <div className="space-y-1">

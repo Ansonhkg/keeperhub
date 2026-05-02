@@ -149,6 +149,21 @@ describe("intent resolution and candidate validation", () => {
     ).toHaveLength(1);
   });
 
+  it("does not ask market-threshold questions for operational success guards", () => {
+    const resolution = resolveIntentConstraints(
+      conditionPlan(
+        "Check the price of ETH every 15 seconds and notify me by webhook 3 times",
+        "Check whether the price read succeeded"
+      )
+    );
+
+    expect(
+      (resolution.dynamicRequirements ?? []).some(
+        (requirement) => requirement.key === "condition.criteria"
+      )
+    ).toBe(false);
+  });
+
   it("satisfies condition criteria when the prompt includes a measurable threshold", () => {
     const priceResolution = resolveIntentConstraints(
       conditionPlan(
@@ -203,8 +218,8 @@ describe("intent resolution and candidate validation", () => {
     expect(resolution.intentIR).toMatchObject({
       conditions: [
         {
-          baselineRef: "baselineEthPrice",
-          freshRef: "freshEthPrice",
+          baselineRef: "baselineEthUsdPrice",
+          freshRef: "freshEthUsdPrice",
           kind: "absolute_delta",
           metric: "ETH/USD",
           operator: ">=",
@@ -214,12 +229,12 @@ describe("intent resolution and candidate validation", () => {
       ],
       state: [
         {
-          id: "baselineEthPrice",
+          id: "baselineEthUsdPrice",
           mutability: "constant",
           timing: "before_loop",
         },
         {
-          id: "freshEthPrice",
+          id: "freshEthUsdPrice",
           mutability: "mutable",
           timing: "inside_loop",
         },
@@ -235,10 +250,11 @@ describe("intent resolution and candidate validation", () => {
     expect(resolution.dynamicRequirements).toContainEqual(
       expect.objectContaining({
         key: "condition.criteria",
+        requirementKind: "condition.delta",
         status: "satisfied",
         value: expect.objectContaining({
-          baselineRef: "baselineEthPrice",
-          freshRef: "freshEthPrice",
+          baselineRef: "baselineEthUsdPrice",
+          freshRef: "freshEthUsdPrice",
           kind: "absolute_delta",
           operator: ">=",
           threshold: 0.1,
@@ -256,6 +272,7 @@ describe("intent resolution and candidate validation", () => {
     expect(resolution.dynamicRequirements).toContainEqual(
       expect.objectContaining({
         key: "temporal.bounded_loop",
+        requirementKind: "temporal.duration",
         status: "unsupported",
         value: expect.objectContaining({
           durationSeconds: 30,
@@ -266,10 +283,62 @@ describe("intent resolution and candidate validation", () => {
     expect(resolution.dynamicRequirements).toContainEqual(
       expect.objectContaining({
         key: "branch.false",
+        requirementKind: "branch.false",
         status: "unsupported",
         value: expect.objectContaining({
           action: "log",
           when: "false",
+        }),
+      })
+    );
+  });
+
+  it("derives stateful absolute-delta refs from the dynamic asset pair", () => {
+    const sourceText =
+      "Check the current SOL price and cache it, use the cached SOL price as a fixed constant value, then get the fresh SOL price every 5 seconds, if it moves by $0.10, notify me via Telegram. If not, just log it. Do this for 30 seconds.";
+    const base = planWithAsset(sourceText, "SOL");
+    const resolution = resolveIntentConstraints({
+      ...base,
+      steps: [
+        {
+          dependsOn: [],
+          id: "step-read",
+          kind: "read",
+          label: "Read SOL/USD price",
+          requiredEntityIds: base.entities.map((entity) => entity.id),
+          status: "ready",
+        },
+        {
+          dependsOn: ["step-read"],
+          id: "step-condition",
+          kind: "condition",
+          label:
+            "Determine whether fresh SOL price moved by $0.10 from cached baseline",
+          requiredEntityIds: [],
+          status: "ready",
+        },
+      ],
+    });
+
+    expect(resolution.intentIR).toMatchObject({
+      conditions: [
+        {
+          baselineRef: "baselineSolUsdPrice",
+          freshRef: "freshSolUsdPrice",
+          kind: "absolute_delta",
+          metric: "SOL/USD",
+        },
+      ],
+      state: [{ id: "baselineSolUsdPrice" }, { id: "freshSolUsdPrice" }],
+    });
+    expect(resolution.dynamicRequirements).toContainEqual(
+      expect.objectContaining({
+        key: "condition.criteria",
+        requirementKind: "condition.delta",
+        value: expect.objectContaining({
+          baselineRef: "baselineSolUsdPrice",
+          freshRef: "freshSolUsdPrice",
+          metric: "SOL/USD",
         }),
       })
     );
