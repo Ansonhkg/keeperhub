@@ -601,17 +601,30 @@ function isTemporalCountCondition(text: string): boolean {
   const normalized = normalizeText(text);
   return (
     (hasAny(normalized, ["run", "repeat", "count", "times", "finish"]) &&
-      /\b\d+\s+times?\b/i.test(text)) ||
+      hasNumericOrWordCount(text)) ||
     (hasAny(normalized, [
       "count",
+      "continue",
+      "finish",
+      "iteration",
+      "iterations",
       "loop",
       "looping",
       "notification",
       "notifications",
       "reached",
     ]) &&
-      /\b\d+\b/.test(text)) ||
+      hasNumericOrWordCount(text)) ||
     containsPhrase(normalized, "run 3 times")
+  );
+}
+
+function hasNumericOrWordCount(text: string): boolean {
+  return (
+    /\b\d+\b/.test(text) ||
+    /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/i.test(
+      text
+    )
   );
 }
 
@@ -1107,11 +1120,8 @@ function assetLabelForQuestion(
     }
   }
   for (const entity of intentPlan?.entities ?? []) {
-    if (entity.kind === "asset") {
-      assets.add(
-        normalizeAssetSymbol(entity.canonicalValue ?? entity.label) ??
-          entity.label
-      );
+    if (isAssetLikeEntityKind(entity.kind)) {
+      assets.add(normalizeEntityAssetSymbol(entity) ?? entity.label);
     }
   }
   return assets.size > 0 ? [...assets].join("/") : undefined;
@@ -1335,10 +1345,10 @@ function findExplicitAssets(
 ): Array<{ symbol: string; sourceEntityId?: string }> {
   const assets = new Map<string, { symbol: string; sourceEntityId?: string }>();
   for (const entity of intentPlan.entities) {
-    if (entity.kind !== "asset") {
+    if (!isAssetLikeEntityKind(entity.kind)) {
       continue;
     }
-    const symbol = normalizeAssetSymbol(entity.canonicalValue ?? entity.label);
+    const symbol = normalizeEntityAssetSymbol(entity);
     if (symbol) {
       assets.set(symbol, { symbol, sourceEntityId: entity.id });
     }
@@ -1351,8 +1361,31 @@ function findExplicitAssets(
   return [...assets.values()];
 }
 
+function isAssetLikeEntityKind(kind: string): boolean {
+  const normalized = kind.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  return [
+    "asset",
+    "coin",
+    "crypto",
+    "cryptocurrency",
+    "currency",
+    "digital_asset",
+    "token",
+  ].includes(normalized);
+}
+
 function findSymbolLikeTokens(text: string): string[] {
-  const ignored = new Set(["api", "http", "https", "token", "usd"]);
+  const ignored = new Set([
+    "api",
+    "current",
+    "http",
+    "https",
+    "native",
+    "spot",
+    "the",
+    "token",
+    "usd",
+  ]);
   const matches = [
     ...text.matchAll(
       /\b([a-z0-9]{2,12})\s+(?:balance|feed|price|prices|value)\b/g
@@ -1362,6 +1395,16 @@ function findSymbolLikeTokens(text: string): string[] {
   return matches
     .flatMap((match) => (match[1] ? [match[1].toUpperCase()] : []))
     .filter((token) => !ignored.has(token.toLowerCase()));
+}
+
+function normalizeEntityAssetSymbol(
+  entity: IntentPlan["entities"][number]
+): string | undefined {
+  const labelSymbol = normalizeAssetSymbol(entity.label);
+  if (labelSymbol && labelSymbol.length <= 8) {
+    return labelSymbol;
+  }
+  return normalizeAssetSymbol(entity.canonicalValue ?? entity.label);
 }
 
 function findExplicitAssetPairs(
@@ -1571,7 +1614,7 @@ function explicitViaProviders(text: string): string[] {
   const direct = [
     ...text.matchAll(/\b(?:in|on|using|via|with)\s+([a-z][a-z0-9-]{1,30})\b/g),
     ...text.matchAll(
-      /\buse\s+([a-z][a-z0-9-]{1,30})\s+to\s+(?:notify|alert|message|post|send)\b/g
+      /\buse\s+(?:a\s+|an\s+|the\s+)?([a-z][a-z0-9-]{1,30})\s+to\s+(?:notify|alert|message|post|send)\b/g
     ),
   ].flatMap((match) =>
     match[1] && !/^(?:a|an|the)$/.test(match[1])

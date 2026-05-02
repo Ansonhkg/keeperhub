@@ -21,6 +21,16 @@ import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 import { getKeeperTraceProviders } from "@/lib/trace/providers";
 import type { TraceContext } from "@keeperhub/trace-sdk/server";
 
+function builderTraceMetadataFromNodes(nodes: WorkflowNode[]) {
+  for (const node of nodes) {
+    const trace = node.data.config?.builderTrace;
+    if (trace && typeof trace === "object" && !Array.isArray(trace)) {
+      return trace as Record<string, unknown>;
+    }
+  }
+  return undefined;
+}
+
 async function executeWorkflowBackground(
   executionId: string,
   workflowId: string,
@@ -56,6 +66,7 @@ async function executeWorkflowBackground(
       trigger: triggerType,
       userId: ownerId ?? "unknown",
       workflowId,
+      builderTrace: builderTraceMetadataFromNodes(nodes),
     });
 
     const run = await start(executeWorkflow, [

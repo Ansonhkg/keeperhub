@@ -2,6 +2,7 @@ import type { BuilderProgressEvent } from "@keeperhub/agentic-builder/runtime";
 import type { BuilderProjection } from "@keeperhub/agentic-builder/schemas";
 import { resolveBuilderAuthContext } from "@/lib/agentic-builder/keeperhub-auth";
 import { keeperHubBuilderRuntime } from "@/lib/agentic-builder/keeperhub-runtime";
+import { withTracedApiHandler } from "@/lib/trace/api-request-trace";
 
 type BuilderStreamEvent =
   | ({ type: "status" } & BuilderProgressEvent)
@@ -16,7 +17,7 @@ async function readJson(request: Request): Promise<unknown> {
   return request.headers.get("content-length") === "0" ? {} : request.json();
 }
 
-export async function POST(request: Request): Promise<Response> {
+async function postBuilderSessionStream(request: Request): Promise<Response> {
   const body = (await readJson(request)) as {
     context?: unknown;
     prompt?: unknown;
@@ -77,3 +78,8 @@ export async function POST(request: Request): Promise<Response> {
     },
   });
 }
+
+export const POST = withTracedApiHandler(
+  "POST /api/builder/sessions/stream",
+  postBuilderSessionStream
+);

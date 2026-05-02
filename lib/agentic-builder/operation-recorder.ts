@@ -3,6 +3,7 @@ import type {
   BuilderAuthContext,
   BuilderEvent,
 } from "@keeperhub/agentic-builder/schemas";
+import { recordBuilderEventTrace } from "./builder-trace";
 
 const events = new Map<string, BuilderEvent[]>();
 
@@ -13,6 +14,7 @@ export function createOperationRecorder(): EventSinkPort {
         ...(events.get(event.sessionId) ?? []),
         event,
       ]);
+      await recordBuilderEventTrace(event);
     },
   };
 }

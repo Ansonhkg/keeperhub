@@ -127,17 +127,26 @@ function extractJsonObjectAfterKeyword(text: string): string | undefined {
   return undefined;
 }
 
+function extractQuotedMessage(text: string): string | undefined {
+  return (
+    /\bmessage\s+["“]([^"”]+)["”]/i.exec(text)?.[1] ??
+    /\bwith\s+message\s+(.+?)(?:\.|$)/i.exec(text)?.[1]?.trim()
+  );
+}
+
 function webhookConfigFromText(text: string): Record<string, unknown> {
   const webhookPayload = extractJsonObjectAfterKeyword(text);
+  const quotedMessage = extractQuotedMessage(text);
   return {
     ...(extractFirstUrl(text) ? { webhookUrl: extractFirstUrl(text) } : {}),
     webhookMethod: extractHttpMethod(text) ?? "POST",
-    ...(webhookPayload
+    ...(webhookPayload || quotedMessage
       ? {
           webhookHeaders: JSON.stringify({
             "Content-Type": "application/json",
           }),
-          webhookPayload,
+          webhookPayload:
+            webhookPayload ?? JSON.stringify({ message: quotedMessage }),
         }
       : {}),
   };
@@ -597,6 +606,94 @@ function optionSourceStepId(
   return committedSteps.get(option.stepId)?.dependsOn[0];
 }
 
+function normalizedOptionText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9/]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function canvasOptionDeduplicationKey(option: BuilderOption): string {
+  const text = normalizedOptionText(
+    `${option.title} ${option.rationale} ${option.candidateIds.join(" ")}`
+  );
+
+  if (
+    text.includes("chronicle") &&
+    /\b(age|freshness|timestamp)\b/.test(text)
+  ) {
+    return "price:chronicle-with-age";
+  }
+  if (text.includes("chronicle")) {
+    return "price:chronicle-read";
+  }
+  if (text.includes("chainlink") && text.includes("decimal")) {
+    return "price:chainlink-decimals";
+  }
+  if (text.includes("chainlink") && text.includes("description")) {
+    return "price:chainlink-description";
+  }
+  if (
+    text.includes("chainlink") &&
+    /\b(latest|round|answer|timestamp)\b/.test(text)
+  ) {
+    return "price:chainlink-latest-round";
+  }
+  if (text.includes("chainlink")) {
+    return "price:chainlink";
+  }
+
+  for (const channel of [
+    "webhook",
+    "telegram",
+    "slack",
+    "email",
+    "discord",
+    "sendgrid",
+  ]) {
+    if (text.includes(channel)) {
+      return `notification:${channel}`;
+    }
+  }
+
+  if (option.candidateIds.length > 0) {
+    return `candidates:${option.candidateIds
+      .map((candidateId) =>
+        candidateId.replace(/^(native|protocol|system|generated)-/, "")
+      )
+      .sort()
+      .join("|")}`;
+  }
+
+  return `title:${normalizedOptionText(option.title)}`;
+}
+
+function dedupeOpenOptions(
+  options: readonly BuilderOption[]
+): readonly BuilderOption[] {
+  const optionsByKey = new Map<string, BuilderOption>();
+  const order: string[] = [];
+
+  for (const option of options) {
+    const key = canvasOptionDeduplicationKey(option);
+    const existing = optionsByKey.get(key);
+    if (!existing) {
+      optionsByKey.set(key, option);
+      order.push(key);
+      continue;
+    }
+    if (option.confidence > existing.confidence) {
+      optionsByKey.set(key, option);
+    }
+  }
+
+  return order.flatMap((key) => {
+    const option = optionsByKey.get(key);
+    return option ? [option] : [];
+  });
+}
+
 type CommittedEdge = BuilderProjection["committed"]["edges"][number];
 
 function layoutEdgesFor(
@@ -769,8 +866,8 @@ export function projectBuilderToCanvas(
   const allOpenOptionIds = new Set(
     allOpenBranches.map((branch) => branch.optionId)
   );
-  const allOpenOptions = projection.options.filter((option) =>
-    allOpenOptionIds.has(option.id)
+  const allOpenOptions = dedupeOpenOptions(
+    projection.options.filter((option) => allOpenOptionIds.has(option.id))
   );
   const defaultHighlightedOptionId = hasSelectedBranch
     ? null
@@ -787,7 +884,12 @@ export function projectBuilderToCanvas(
       }, null);
   const highlightedOptionId =
     options.highlightedOptionId ?? defaultHighlightedOptionId;
-  const openBranches = allOpenBranches;
+  const visibleOpenOptionIds = new Set(
+    allOpenOptions.map((option) => option.id)
+  );
+  const openBranches = allOpenBranches.filter((branch) =>
+    visibleOpenOptionIds.has(branch.optionId)
+  );
   const openOptionIds = new Set(openBranches.map((branch) => branch.optionId));
   const openOptions = allOpenOptions.filter((option) =>
     openOptionIds.has(option.id)
@@ -929,7 +1031,7 @@ export function projectBuilderToCanvas(
     [...committedNodes, ...optionNodes, ...previewNodes].map((node) => node.id)
   );
   const previewEdges = openBranches.flatMap((branch) =>
-    branch.dashedEdges.flatMap((edge) => {
+    branch.dashedEdges.flatMap((edge, edgeIndex) => {
       const source =
         edge.fromStepId ===
         projection.options.find((option) => option.id === branch.optionId)
@@ -942,10 +1044,10 @@ export function projectBuilderToCanvas(
       return [
         {
           id: edgeId(
-            edge.fromStepId,
+            source,
             edge.toStepId,
             "preview",
-            branch.optionId
+            `${branch.optionId}-${branch.branchId}-${edgeIndex}`
           ),
           data: {
             builderHighlighted: highlightedOptionId === branch.optionId,
@@ -970,9 +1072,34 @@ export function projectBuilderToCanvas(
     })
   );
 
+  const seenNodeIds = new Set<string>();
+  const nodes = [...committedNodes, ...optionNodes, ...previewNodes].filter(
+    (node) => {
+      if (seenNodeIds.has(node.id)) {
+        return false;
+      }
+      seenNodeIds.add(node.id);
+      return true;
+    }
+  );
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const seenEdgeIds = new Set<string>();
+  const edges = [...acceptedEdges, ...optionEdges, ...previewEdges].filter(
+    (edge) => {
+      if (!(nodeIds.has(edge.source) && nodeIds.has(edge.target))) {
+        return false;
+      }
+      if (seenEdgeIds.has(edge.id)) {
+        return false;
+      }
+      seenEdgeIds.add(edge.id);
+      return true;
+    }
+  );
+
   return {
-    edges: [...acceptedEdges, ...optionEdges, ...previewEdges],
-    nodes: [...committedNodes, ...optionNodes, ...previewNodes],
+    edges,
+    nodes,
   };
 }
 

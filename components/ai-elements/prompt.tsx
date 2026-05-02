@@ -31,7 +31,11 @@ import {
   hasBuilderWorkflowContext,
   workflowContextNodesForBuilder,
 } from "@/lib/agentic-builder/workflow-context";
-import { materializeBuilderProjectionToRuntime } from "@/lib/agentic-builder/runtime-materializer";
+import {
+  materializeBuilderProjectionToRuntime,
+  type RuntimeMaterializedWorkflowGraph,
+} from "@/lib/agentic-builder/runtime-materializer";
+import { getRuntimeReadinessIssues } from "@/lib/agentic-builder/runtime-readiness";
 import { dedupeEdges } from "@/lib/workflow/edge-helpers";
 import {
   currentWorkflowNameAtom,
@@ -47,6 +51,14 @@ const MAX_PROMPT_HISTORY_ITEMS = 50;
 type AIPromptProps = {
   workflowId?: string;
 };
+
+function hasUnresolvedBuilderWork(projection: BuilderProjection): boolean {
+  return (
+    projection.candidateBranches.some((branch) => branch.status === "open") ||
+    projection.questions.some((question) => question.status === "open") ||
+    projection.validation.issues.some((issue) => issue.severity === "error")
+  );
+}
 
 type BuilderSessionStreamEvent =
   | {
@@ -263,14 +275,25 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
   }, []);
 
   const persistCommittedProjection = useCallback(
-    async (projection: BuilderProjection) => {
+    async (
+      projection: BuilderProjection
+    ): Promise<RuntimeMaterializedWorkflowGraph | null> => {
       if (!workflowId) {
-        return;
+        return null;
       }
 
       const committedGraph = materializeBuilderProjectionToRuntime(projection, {
         sourceText: builderSourceTextRef.current,
       });
+      const readinessIssues = getRuntimeReadinessIssues(committedGraph);
+      if (readinessIssues.length > 0) {
+        const firstIssue = readinessIssues[0];
+        throw new Error(
+          firstIssue
+            ? `${firstIssue.nodeLabel}: ${firstIssue.message}`
+            : "Builder workflow is not ready to persist"
+        );
+      }
       const finalEdges = dedupeEdges(
         committedGraph.edges.map((edge) => ({
           ...edge,
@@ -282,8 +305,32 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
         edges: finalEdges,
         nodes: committedGraph.nodes,
       });
+      return {
+        edges: finalEdges,
+        nodes: committedGraph.nodes,
+      };
     },
     [workflowId]
+  );
+
+  const applyBuilderActionProjection = useCallback(
+    async (projection: BuilderProjection) => {
+      if (hasUnresolvedBuilderWork(projection)) {
+        setActiveBuilderProjection(projection);
+        setHighlightedOptionId(null);
+        return;
+      }
+
+      const committedGraph = await persistCommittedProjection(projection);
+      if (!committedGraph) {
+        return;
+      }
+      setNodes(committedGraph.nodes);
+      setEdges(committedGraph.edges);
+      setHighlightedOptionId(null);
+      setActiveBuilderProjection(null);
+    },
+    [persistCommittedProjection, setActiveBuilderProjection, setEdges, setNodes]
   );
 
   const contextNodes = workflowContextNodesForBuilder(nodes);
@@ -603,21 +650,20 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
           return;
         }
         const nextProjection = (await response.json()) as BuilderProjection;
-        setActiveBuilderProjection(nextProjection);
-        await persistCommittedProjection(nextProjection);
-        setHighlightedOptionId(null);
+        await applyBuilderActionProjection(nextProjection);
         toast.success("Selected option");
-      } catch {
-        toast.error("Builder action failed");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Builder action failed"
+        );
       } finally {
         setPendingBuilderActionId(null);
       }
     },
     [
       builderProjection,
+      applyBuilderActionProjection,
       pendingBuilderActionId,
-      persistCommittedProjection,
-      setActiveBuilderProjection,
     ]
   );
 
@@ -637,21 +683,20 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
           return;
         }
         const nextProjection = (await response.json()) as BuilderProjection;
-        setActiveBuilderProjection(nextProjection);
-        await persistCommittedProjection(nextProjection);
-        setHighlightedOptionId(null);
+        await applyBuilderActionProjection(nextProjection);
         toast.success("Rejected option");
-      } catch {
-        toast.error("Builder action failed");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Builder action failed"
+        );
       } finally {
         setPendingBuilderActionId(null);
       }
     },
     [
       builderProjection,
+      applyBuilderActionProjection,
       pendingBuilderActionId,
-      persistCommittedProjection,
-      setActiveBuilderProjection,
     ]
   );
 
@@ -683,20 +728,19 @@ export function AIPrompt({ workflowId }: AIPromptProps) {
             .filter(Boolean)
             .join("\n\n");
         }
-        setActiveBuilderProjection(nextProjection);
-        await persistCommittedProjection(nextProjection);
-        setHighlightedOptionId(null);
-      } catch {
-        toast.error("Builder action failed");
+        await applyBuilderActionProjection(nextProjection);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Builder action failed"
+        );
       } finally {
         setPendingBuilderActionId(null);
       }
     },
     [
       builderProjection,
+      applyBuilderActionProjection,
       pendingBuilderActionId,
-      persistCommittedProjection,
-      setActiveBuilderProjection,
     ]
   );
 

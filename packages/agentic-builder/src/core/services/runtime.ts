@@ -69,6 +69,10 @@ type BuilderProgressReporter = (
   event: BuilderProgressEvent
 ) => Promise<void> | void;
 
+function jsonPayload<T>(payload: T): T {
+  return JSON.parse(JSON.stringify(payload)) as T;
+}
+
 export function createBuilderRuntime(ports: BuilderPorts) {
   return {
     startSession: (
@@ -153,6 +157,41 @@ async function startSession(
     status: "running",
   });
   const intentResolution = resolveIntentConstraints(plan);
+  const requirementEvent = createLifecycleEvent({
+    actor: auth,
+    createdAt: ports.clock.now(),
+    id: ports.ids.next("event"),
+    model: "builder-runtime",
+    payload: jsonPayload({
+      actions: intentResolution.actions.map((action) => ({
+        id: action.id,
+        kind: action.kind,
+        requirementIds: action.requirementIds,
+        title: action.title,
+      })),
+      dynamicRequirements: (intentResolution.dynamicRequirements ?? []).map(
+        (requirement) => ({
+          id: requirement.id,
+          key: requirement.key,
+          kind: requirement.requirementKind,
+          status: requirement.status,
+          value: requirement.value,
+        })
+      ),
+      intentIR: intentResolution.intentIR,
+      requirements: intentResolution.requirements.map((requirement) => ({
+        appliesTo: requirement.appliesTo,
+        id: requirement.id,
+        status: requirement.status,
+        type: requirement.type,
+        value: requirement.value,
+      })),
+    }),
+    phaseStatus: "completed",
+    sessionId,
+    stage: "requirement_resolution",
+  });
+  await ports.events.emit(auth, requirementEvent);
   await progress({
     detail: `${intentResolution.requirements.length} requirement${intentResolution.requirements.length === 1 ? "" : "s"} evaluated`,
     label: "Evaluated requirement coverage",
@@ -345,7 +384,12 @@ async function startSession(
       intentResolution,
       candidates
     ),
-    events: [evaluationEvent, validationCompatibilityEvent, event],
+    events: [
+      requirementEvent,
+      evaluationEvent,
+      validationCompatibilityEvent,
+      event,
+    ],
     featureRequests: [],
     createdAt: now,
     updatedAt: now,
@@ -693,7 +737,11 @@ export async function runOptionGenerator(
   const candidatesById = new Map(
     optionCandidates.map((candidate) => [candidate.id, candidate])
   );
-  const options = generatedOptions.map((option) =>
+  const options = splitCompetingCandidateOptions(
+    generatedOptions,
+    evaluationByCandidateId,
+    candidatesById
+  ).map((option) =>
     alignOptionToCandidateStep(
       {
         ...option,
@@ -725,6 +773,71 @@ export async function runOptionGenerator(
     })
   );
   return options;
+}
+
+function splitCompetingCandidateOptions(
+  options: readonly BuilderOption[],
+  evaluations: ReadonlyMap<string, CandidateEvaluation>,
+  candidatesById: ReadonlyMap<string, CatalogCandidate>
+): readonly BuilderOption[] {
+  return options.flatMap((option) => {
+    const candidateIds = [
+      ...new Set(
+        option.candidateIds.filter((candidateId) =>
+          candidatesById.has(candidateId)
+        )
+      ),
+    ];
+    if (candidateIds.length <= 1) {
+      return [{ ...option, candidateIds }];
+    }
+    const candidateEvaluations = candidateIds.map((candidateId) =>
+      evaluations.get(candidateId)
+    );
+    const decisionGroupIds = new Set(
+      candidateEvaluations.flatMap((evaluation) =>
+        evaluation?.decisionGroupId ? [evaluation.decisionGroupId] : []
+      )
+    );
+    const shouldSplit =
+      decisionGroupIds.size === 1 &&
+      candidateEvaluations.every(
+        (evaluation) => evaluation?.relationship === "competing"
+      );
+    if (!shouldSplit) {
+      return [{ ...option, candidateIds }];
+    }
+    return candidateIds.map((candidateId, index) => {
+      const candidate = candidatesById.get(candidateId);
+      const suffix = candidateId.replace(/[^a-z0-9]+/gi, "-");
+      return {
+        ...option,
+        candidateIds: [candidateId],
+        confidence: candidate?.score ?? option.confidence,
+        id: index === 0 ? option.id : `${option.id}-${suffix}`,
+        patch: {
+          ...option.patch,
+          id: index === 0 ? option.patch.id : `${option.patch.id}-${suffix}`,
+          ops: option.patch.ops.map((op) =>
+            op.op === "update_step" && candidate
+              ? {
+                  ...op,
+                  changes: {
+                    ...op.changes,
+                    label: candidate.label,
+                    status: "ready" as const,
+                  },
+                }
+              : op
+          ),
+          summary: candidate ? `Use ${candidate.label}` : option.patch.summary,
+        },
+        rationale: candidate?.description ?? option.rationale,
+        requiredInputs: candidate?.requiredInputs ?? option.requiredInputs,
+        title: candidate?.label ?? option.title,
+      };
+    });
+  });
 }
 
 function orderCandidatesForOptionCoverage(
@@ -1749,6 +1862,12 @@ async function selectOption(
     outcome: "accepted",
     targetId: optionId,
     createdAt: now,
+    payload: {
+      candidateIds: option.candidateIds,
+      decisionGroupId: option.decisionGroupId ?? "",
+      requirementIds: option.requirementIds ?? [],
+      title: option.title,
+    },
   });
   await ports.events.emit(auth, event);
   return saveAndProject(ports, auth, {
@@ -1896,6 +2015,10 @@ async function answerQuestion(
     outcome: "accepted",
     targetId: answer.questionId,
     createdAt: now,
+    payload: {
+      answerType: Array.isArray(answer.answer) ? "multi_value" : "text",
+      questionId: answer.questionId,
+    },
   });
   await ports.events.emit(auth, event);
   const isConditionClarification = answer.questionId.startsWith(
@@ -1928,6 +2051,35 @@ async function answerQuestion(
       clarifiedPrompt
     );
     const intentResolution = resolveIntentConstraints(plan);
+    const requirementEvent = createLifecycleEvent({
+      actor: auth,
+      createdAt: ports.clock.now(),
+      id: ports.ids.next("event"),
+      model: "builder-runtime",
+      payload: jsonPayload({
+        dynamicRequirements: (intentResolution.dynamicRequirements ?? []).map(
+          (requirement) => ({
+            id: requirement.id,
+            key: requirement.key,
+            kind: requirement.requirementKind,
+            status: requirement.status,
+            value: requirement.value,
+          })
+        ),
+        intentIR: intentResolution.intentIR,
+        requirements: intentResolution.requirements.map((requirement) => ({
+          appliesTo: requirement.appliesTo,
+          id: requirement.id,
+          status: requirement.status,
+          type: requirement.type,
+          value: requirement.value,
+        })),
+      }),
+      phaseStatus: "completed",
+      sessionId,
+      stage: "requirement_resolution",
+    });
+    await ports.events.emit(auth, requirementEvent);
     const candidates = await runCatalogSearch(ports, auth, sessionId, plan);
     const evaluationRun = await runCatalogCandidateEvaluation(
       ports,
@@ -2059,6 +2211,7 @@ async function answerQuestion(
       events: [
         ...session.events,
         event,
+        requirementEvent,
         evaluationEvent,
         validationCompatibilityEvent,
       ],

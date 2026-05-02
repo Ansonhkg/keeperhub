@@ -18,6 +18,7 @@ export type WorkflowTraceRunInput = {
   traceId?: string;
   parentSpanId?: string | null;
   at?: Date | string;
+  builderTrace?: Record<string, unknown>;
 };
 
 export type WorkflowTraceStepStartInput = {
@@ -114,6 +115,23 @@ export async function startWorkflowTraceRun(
         trigger: input.trigger ?? "manual",
         userId: input.userId,
         workflowId: input.workflowId,
+        ...(input.builderTrace
+          ? {
+              builderSessionId:
+                typeof input.builderTrace.builderSessionId === "string"
+                  ? input.builderTrace.builderSessionId
+                  : "",
+              builderMaterializer:
+                typeof input.builderTrace.materializer === "string"
+                  ? input.builderTrace.materializer
+                  : "",
+              builderSelectedOptionIds: Array.isArray(
+                input.builderTrace.selectedOptionIds
+              )
+                ? input.builderTrace.selectedOptionIds.join(",")
+                : "",
+            }
+          : {}),
       },
       runId: input.executionId,
       traceId,

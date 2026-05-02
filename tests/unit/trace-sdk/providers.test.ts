@@ -1,5 +1,6 @@
 import { createInMemoryTraceStore } from "@keeperhub/trace-sdk/server";
 import { beforeEach, describe, expect, it } from "vitest";
+import { recordBuilderEventTrace } from "../../../lib/agentic-builder/builder-trace";
 import { createKeeperTraceProviders } from "../../../lib/trace/providers";
 import {
   recordWorkflowStepEnd,
@@ -92,6 +93,65 @@ describe("KeeperHub trace providers", () => {
       label: "HTTP Request",
       output: { ok: true },
       status: "success",
+    });
+  });
+
+  it("records builder lifecycle events as diagnostic spans in the active trace", async () => {
+    const store = createInMemoryTraceStore();
+    const providers = createKeeperTraceProviders({ store });
+
+    await providers.recorder.record({
+      at: "2026-01-01T00:00:00.000Z",
+      attributes: { capability: "builder", origin: "test" },
+      runId: "builder-run-1",
+      traceId: "1234567890abcdef1234567890abcdef",
+      type: "run:start",
+    });
+
+    await providers.contextProvider.run(
+      {
+        runId: "builder-run-1",
+        traceId: "1234567890abcdef1234567890abcdef",
+      },
+      async () => {
+        await recordBuilderEventTrace(
+          {
+            actor: {
+              actorType: "user",
+              organizationId: "org-1",
+              scopes: ["builder:write"],
+              userId: "user-1",
+            },
+            createdAt: "2026-01-01T00:00:01.000Z",
+            eventKind: "lifecycle",
+            id: "builder-event-1",
+            payload: {
+              acceptedCount: 2,
+              rejectedCount: 1,
+            },
+            phaseStatus: "completed",
+            sessionId: "builder-session-1",
+            stage: "candidate_evaluation",
+          },
+          providers
+        );
+      }
+    );
+
+    const run = await store.getRun("builder-run-1");
+    expect(run?.spans).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "builder",
+          label: "Builder candidate_evaluation",
+          status: "success",
+          step: "builder.candidate_evaluation",
+        }),
+      ])
+    );
+    expect(run?.spans[0]?.attributes).toMatchObject({
+      builderSessionId: "builder-session-1",
+      builderStage: "candidate_evaluation",
     });
   });
 

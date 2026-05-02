@@ -118,6 +118,37 @@ function conditionIssues(
   return [];
 }
 
+function builderTraceIssues(
+  node: WorkflowNode,
+  config: Record<string, unknown>
+): RuntimeReadinessIssue[] {
+  const trace = config.builderTrace;
+  if (!isRecord(trace)) {
+    return [];
+  }
+
+  const issues: RuntimeReadinessIssue[] = [];
+  if (Number(trace.openQuestionCount) > 0) {
+    issues.push({
+      fieldKey: "builderTrace.openQuestionCount",
+      message:
+        "Builder still has unanswered requirements before this workflow can run.",
+      nodeId: node.id,
+      nodeLabel: node.data.label || "Builder-generated step",
+    });
+  }
+  if (Number(trace.validationIssueCount) > 0) {
+    issues.push({
+      fieldKey: "builderTrace.validationIssueCount",
+      message:
+        "Builder validation reported unresolved errors before materialization.",
+      nodeId: node.id,
+      nodeLabel: node.data.label || "Builder-generated step",
+    });
+  }
+  return issues;
+}
+
 export function getRuntimeReadinessIssues({
   edges,
   includeRequiredFields = true,
@@ -128,6 +159,13 @@ export function getRuntimeReadinessIssues({
   includeRequiredFields?: boolean;
 }): RuntimeReadinessIssue[] {
   const nodeIds = new Set(nodes.map((node) => node.id));
+  const edgesBySource = new Map<string, WorkflowEdge[]>();
+  for (const edge of edges) {
+    edgesBySource.set(edge.source, [
+      ...(edgesBySource.get(edge.source) ?? []),
+      edge,
+    ]);
+  }
   const issues: RuntimeReadinessIssue[] = [];
 
   for (const node of nodes) {
@@ -142,11 +180,15 @@ export function getRuntimeReadinessIssues({
       continue;
     }
 
+    const config = node.data.config;
+    if (isRecord(config)) {
+      issues.push(...builderTraceIssues(node, config));
+    }
+
     if (node.data.enabled === false || node.data.type !== "action") {
       continue;
     }
 
-    const config = node.data.config;
     if (!isRecord(config)) {
       issues.push({
         message: "Action step has no runtime configuration.",
@@ -180,6 +222,36 @@ export function getRuntimeReadinessIssues({
       issues.push(...requiredFieldIssues(node, config, actionType));
     }
     issues.push(...conditionIssues(node, config));
+
+    if (config.actionType === "Condition") {
+      const outgoing = edgesBySource.get(node.id) ?? [];
+      const sourcePrompt =
+        isRecord(config.builderTrace) &&
+        typeof config.builderTrace.sourcePrompt === "string"
+          ? config.builderTrace.sourcePrompt.toLowerCase()
+          : "";
+      const hasTrue = outgoing.some((edge) => edge.sourceHandle === "true");
+      const hasFalse = outgoing.some((edge) => edge.sourceHandle === "false");
+      if (sourcePrompt.includes(" if ") && !hasTrue) {
+        issues.push({
+          fieldKey: "edges.true",
+          message: "Condition needs a connected true branch.",
+          nodeId: node.id,
+          nodeLabel,
+        });
+      }
+      if (
+        /\b(if\s+not|else|otherwise|log it|not met)\b/.test(sourcePrompt) &&
+        !hasFalse
+      ) {
+        issues.push({
+          fieldKey: "edges.false",
+          message: "Condition needs a connected false branch.",
+          nodeId: node.id,
+          nodeLabel,
+        });
+      }
+    }
 
     for (const fieldKey of collectBuilderPlaceholders(config)) {
       issues.push({

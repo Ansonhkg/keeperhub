@@ -120,6 +120,7 @@ function createScenarioPorts(
   candidates: readonly CatalogCandidate[],
   options: {
     readonly acceptRejectedCandidates?: boolean;
+    readonly bundledOptionCandidateIds?: readonly string[];
     readonly candidatesByCall?: readonly (readonly CatalogCandidate[])[];
     readonly candidateRequirementIds?: Record<string, readonly string[]>;
     readonly intentInputs?: string[];
@@ -171,6 +172,7 @@ function synthesizeScenarioOutput(
   input: AiTemplateRunInput,
   options: {
     readonly acceptRejectedCandidates?: boolean;
+    readonly bundledOptionCandidateIds?: readonly string[];
     readonly candidateRequirementIds?: Record<string, readonly string[]>;
     readonly intentPlan?: IntentPlan;
     readonly openQuestionIds?: readonly string[];
@@ -247,6 +249,38 @@ function synthesizeScenarioOutput(
       requiredInputs: string[];
       score: number;
     }>;
+    if (options.bundledOptionCandidateIds) {
+      const bundledCandidates = candidates.filter((candidate) =>
+        options.bundledOptionCandidateIds?.includes(candidate.id)
+      );
+      return [
+        {
+          candidateIds: bundledCandidates.map((candidate) => candidate.id),
+          confidence: 0.94,
+          id: "option-bundled-price-source",
+          patch: {
+            id: "patch-bundled-price-source",
+            ops: [
+              {
+                changes: {
+                  label: bundledCandidates[0]?.label ?? "Use bundled source",
+                  status: "ready",
+                },
+                op: "update_step",
+                stepId: "step-read-price",
+              },
+            ],
+            summary: "Use bundled price source",
+          },
+          rationale: "Bundled competing candidates from the model.",
+          requiredInputs: [],
+          risk: "low",
+          stepId: "step-read-price",
+          strategy: "native_action",
+          title: "Use bundled price source",
+        },
+      ];
+    }
     return candidates.slice(0, 3).map((candidate) => ({
       candidateIds: [candidate.id],
       confidence: candidate.score,
@@ -358,6 +392,88 @@ describe("agentic builder runtime", () => {
     expect(rankedCandidateIds).toEqual([["native-slack/send-message"]]);
     expect(projection.options.map((option) => option.candidateIds[0])).toEqual([
       "native-slack/send-message",
+    ]);
+  });
+
+  it("splits bundled competing price candidates into separate options", async () => {
+    const intentPlan: IntentPlan = {
+      entities: [
+        {
+          canonicalValue: "ETH",
+          confidence: 0.99,
+          id: "eth",
+          kind: "asset",
+          label: "ETH",
+        },
+        {
+          canonicalValue: "webhook",
+          confidence: 0.99,
+          id: "webhook",
+          kind: "notification_channel",
+          label: "webhook",
+        },
+      ],
+      id: "intent-price-webhook",
+      openQuestionIds: [],
+      sourceText:
+        "Check the price of ETH every 15 seconds and use a webhook to notify me. Do this three times before finishing the workflow.",
+      steps: [
+        {
+          dependsOn: [],
+          id: "step-trigger",
+          kind: "trigger",
+          label: "Start every 15 seconds",
+          requiredEntityIds: [],
+          status: "ready",
+        },
+        {
+          dependsOn: ["step-trigger"],
+          id: "step-read-price",
+          kind: "read",
+          label: "Read the current ETH price",
+          requiredEntityIds: ["eth"],
+          status: "ready",
+        },
+        {
+          dependsOn: ["step-read-price"],
+          id: "step-notify",
+          kind: "notify",
+          label: "Send the price update to the webhook",
+          requiredEntityIds: ["webhook"],
+          status: "ready",
+        },
+      ],
+    };
+    const projection = await createBuilderRuntime(
+      createScenarioPorts(
+        [
+          candidate(
+            "protocol-chronicle-eth-usd-read-with-age",
+            "Chronicle: Read ETH/USD Value with Age"
+          ),
+          candidate(
+            "protocol-chainlink-eth-usd-latest-round-data",
+            "Chainlink: Get ETH/USD Latest Round Data"
+          ),
+          candidate("native-webhook/send-webhook", "Send Webhook"),
+        ],
+        {
+          bundledOptionCandidateIds: [
+            "protocol-chronicle-eth-usd-read-with-age",
+            "protocol-chainlink-eth-usd-latest-round-data",
+          ],
+          intentPlan,
+        }
+      )
+    ).startSession(auth, intentPlan.sourceText);
+
+    expect(projection.options.map((option) => option.candidateIds)).toEqual([
+      ["protocol-chronicle-eth-usd-read-with-age"],
+      ["protocol-chainlink-eth-usd-latest-round-data"],
+    ]);
+    expect(projection.options.map((option) => option.title)).toEqual([
+      "Chronicle: Read ETH/USD Value with Age",
+      "Chainlink: Get ETH/USD Latest Round Data",
     ]);
   });
 

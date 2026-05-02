@@ -228,6 +228,102 @@ function displayOptionTitle(groupId: string, option: BuilderOption): string {
   return `${title} as the price source`;
 }
 
+function normalizedTextKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9/]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function optionDeduplicationKey(
+  groupId: string,
+  option: BuilderOption
+): string {
+  const text = normalizedTextKey(
+    `${option.title} ${option.rationale} ${option.candidateIds.join(" ")}`
+  );
+
+  if (groupId === "semantic-price") {
+    if (
+      text.includes("chronicle") &&
+      /\b(age|freshness|timestamp)\b/.test(text)
+    ) {
+      return "price:chronicle-with-age";
+    }
+    if (text.includes("chronicle")) {
+      return "price:chronicle-read";
+    }
+    if (text.includes("chainlink") && text.includes("decimal")) {
+      return "price:chainlink-decimals";
+    }
+    if (text.includes("chainlink") && text.includes("description")) {
+      return "price:chainlink-description";
+    }
+    if (
+      text.includes("chainlink") &&
+      /\b(latest|round|answer|timestamp)\b/.test(text)
+    ) {
+      return "price:chainlink-latest-round";
+    }
+    if (text.includes("chainlink")) {
+      return "price:chainlink";
+    }
+  }
+
+  if (groupId === "semantic-notification") {
+    for (const channel of [
+      "webhook",
+      "telegram",
+      "slack",
+      "email",
+      "discord",
+      "sendgrid",
+    ]) {
+      if (text.includes(channel)) {
+        return `notification:${channel}`;
+      }
+    }
+  }
+
+  if (option.candidateIds.length > 0) {
+    return `candidates:${option.candidateIds
+      .map((candidateId) =>
+        candidateId.replace(/^(native|protocol|system|generated)-/, "")
+      )
+      .sort()
+      .join("|")}`;
+  }
+
+  return `title:${normalizedTextKey(displayOptionTitle(groupId, option))}`;
+}
+
+function dedupeOptionsForGroup(
+  groupId: string,
+  options: readonly BuilderOption[]
+): BuilderOption[] {
+  const optionsByKey = new Map<string, BuilderOption>();
+  const order: string[] = [];
+
+  for (const option of options) {
+    const key = optionDeduplicationKey(groupId, option);
+    const existing = optionsByKey.get(key);
+    if (!existing) {
+      optionsByKey.set(key, option);
+      order.push(key);
+      continue;
+    }
+    if (option.confidence > existing.confidence) {
+      optionsByKey.set(key, option);
+    }
+  }
+
+  return order.flatMap((key) => {
+    const option = optionsByKey.get(key);
+    return option ? [option] : [];
+  });
+}
+
 function groupVisibleOptions(
   projection: BuilderProjection | null,
   visibleOptions: readonly BuilderOption[]
@@ -256,11 +352,12 @@ function groupVisibleOptions(
         (orderById.get(leftId) ?? 0) - (orderById.get(rightId) ?? 0)
     )
     .map(([id, options]) => {
+      const dedupedOptions = dedupeOptionsForGroup(id, options);
       const step = stepById.get(options[0]?.stepId ?? "");
       return {
         id,
-        label: optionGroupLabel(id, step, options),
-        options,
+        label: optionGroupLabel(id, step, dedupedOptions),
+        options: dedupedOptions,
         subtitle: optionGroupSubtitle(id, step),
         step,
       };
@@ -307,32 +404,38 @@ function QuestionControl({
     );
   }
 
+  const submitAnswer = () => {
+    const trimmed = answer.trim();
+    if (!trimmed) {
+      return;
+    }
+    onAnswerQuestion(question.id, trimmed);
+    setAnswer("");
+  };
+
   return (
-    <form
-      className="flex min-w-full items-center gap-2 rounded-md border bg-background px-2 py-1.5"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const trimmed = answer.trim();
-        if (!trimmed) {
-          return;
-        }
-        onAnswerQuestion(question.id, trimmed);
-        setAnswer("");
-      }}
-    >
+    <div className="flex min-w-full items-center gap-2 rounded-md border bg-background px-2 py-1.5">
       <span className="max-w-72 truncate text-sm">{question.prompt}</span>
       <Input
         aria-label={`Answer: ${question.prompt}`}
         className="h-7 w-36"
         disabled={isAnyPending}
         onChange={(event) => setAnswer(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") {
+            return;
+          }
+          event.preventDefault();
+          submitAnswer();
+        }}
         value={answer}
       />
       <Button
         className="h-7 px-2"
         disabled={isAnyPending}
+        onClick={submitAnswer}
         size="sm"
-        type="submit"
+        type="button"
       >
         {pendingActionId === `answer:${question.id}:${answer.trim()}` ? (
           <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
@@ -340,7 +443,7 @@ function QuestionControl({
           <Check aria-hidden="true" className="size-3.5" />
         )}
       </Button>
-    </form>
+    </div>
   );
 }
 

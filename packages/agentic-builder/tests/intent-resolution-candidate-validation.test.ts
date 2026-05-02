@@ -164,6 +164,73 @@ describe("intent resolution and candidate validation", () => {
     ).toBe(false);
   });
 
+  it("keeps webhook notification separate from ETH price-source decisions", () => {
+    const sourceText =
+      "Check the price of ETH every 15 seconds and use a webhook to notify me. Do this three times before finishing the workflow.";
+    const resolution = resolveIntentConstraints({
+      ...plan(sourceText),
+      entities: [
+        {
+          canonicalValue: "Ethereum",
+          confidence: 0.95,
+          id: "entity-eth",
+          kind: "cryptocurrency",
+          label: "ETH",
+        },
+      ],
+    });
+    const result = evaluateCatalogCandidates(resolution, [
+      candidate(
+        "protocol-chronicle-eth-usd-read-with-age",
+        "Chronicle: Read ETH/USD Value with Age"
+      ),
+      candidate(
+        "protocol-chainlink-eth-usd-latest-round-data",
+        "Chainlink: Get ETH/USD Latest Round Data"
+      ),
+      candidate("native-webhook/send-webhook", "Send Webhook"),
+    ]);
+
+    expect(
+      resolution.requirements
+        .filter((requirement) => requirement.type === "asset")
+        .map((requirement) => requirement.value)
+    ).toEqual(["ETH/USD"]);
+    expect(
+      resolution.requirements.find(
+        (requirement) => requirement.type === "notification_channel"
+      )
+    ).toMatchObject({
+      status: "satisfied",
+      value: "webhook",
+    });
+    expect(
+      (resolution.dynamicRequirements ?? []).some(
+        (requirement) => requirement.key === "condition.criteria"
+      )
+    ).toBe(false);
+    expect(result.accepted.map((item) => item.id)).toEqual([
+      "protocol-chronicle-eth-usd-read-with-age",
+      "protocol-chainlink-eth-usd-latest-round-data",
+      "native-webhook/send-webhook",
+    ]);
+    expect(result.decisionGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          candidateIds: [
+            "protocol-chronicle-eth-usd-read-with-age",
+            "protocol-chainlink-eth-usd-latest-round-data",
+          ],
+          id: "decision-requirement-asset-1",
+        }),
+        expect.objectContaining({
+          candidateIds: ["native-webhook/send-webhook"],
+          id: "decision-requirement-notification_channel-2",
+        }),
+      ])
+    );
+  });
+
   it("satisfies condition criteria when the prompt includes a measurable threshold", () => {
     const priceResolution = resolveIntentConstraints(
       conditionPlan(

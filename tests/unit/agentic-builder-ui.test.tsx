@@ -314,7 +314,7 @@ describe("agentic builder canvas-native UI", () => {
   it("materializes repeated webhook price checks into executable runtime nodes", () => {
     const runtimeGraph = materializeBuilderProjectionToRuntime(projection, {
       sourceText:
-        "check the price of eth every 15 seconds, use webhook to notify me. do that for 3 times before finishing the workflow\n\nWebhook URL: http://127.0.0.1:4318/api/webhook/notify",
+        "Check the price of ETH every 15 seconds and use a webhook to notify me. Do this three times before finishing the workflow.\n\nWebhook URL: http://127.0.0.1:4318/api/webhook/notify",
     });
 
     expect(runtimeGraph.nodes.map((node) => node.id)).toEqual([
@@ -348,6 +348,74 @@ describe("agentic builder canvas-native UI", () => {
       webhookUrl: "http://127.0.0.1:4318/api/webhook/notify",
     });
     expect(getRuntimeReadinessIssues(runtimeGraph)).toEqual([]);
+  });
+
+  it("materializes stateful baseline delta workflows with true and false branches", () => {
+    const runtimeGraph = materializeBuilderProjectionToRuntime(projection, {
+      sourceText:
+        "Check the current ETH price and cache it, use the cached ETH price as a fixed constant value, then get the fresh ETH price every 5 seconds, if it moves by $0.10, notify me by webhook. If not, just log it. Do this for 3 checks.\n\nWebhook URL: http://127.0.0.1:4318/api/webhook/notify",
+    });
+
+    expect(runtimeGraph.nodes.map((node) => node.id)).toEqual([
+      "manual-trigger",
+      "read-baseline-price",
+      "repeat-fresh-price-checks",
+      "compare-fresh-price",
+      "price-delta-condition",
+      "send-threshold-webhook",
+      "log-below-threshold",
+    ]);
+    expect(
+      runtimeGraph.edges.find(
+        (edge) => edge.target === "send-threshold-webhook"
+      )?.sourceHandle
+    ).toBe("true");
+    expect(
+      runtimeGraph.edges.find((edge) => edge.target === "log-below-threshold")
+        ?.sourceHandle
+    ).toBe("false");
+    expect(
+      runtimeGraph.nodes.find((node) => node.id === "price-delta-condition")
+        ?.data.config
+    ).toMatchObject({
+      actionType: "Condition",
+    });
+    expect(
+      runtimeGraph.nodes.find((node) => node.id === "manual-trigger")?.data
+        .config?.builderTrace
+    ).toMatchObject({
+      builderSessionId: "session-1",
+      materializer: "intent-ir-stateful-price-delta",
+    });
+    expect(getRuntimeReadinessIssues(runtimeGraph)).toEqual([]);
+  });
+
+  it("blocks builder-generated runtime graphs with unanswered requirements", () => {
+    const runtimeGraph = materializeBuilderProjectionToRuntime(
+      {
+        ...projection,
+        questions: [
+          {
+            answerType: "text",
+            id: "question-webhook-url",
+            prompt: "What webhook URL should receive the notification?",
+            status: "open",
+          },
+        ],
+      },
+      {
+        sourceText:
+          "Check the price of ETH every 15 seconds and use a webhook to notify me. Do this three times before finishing the workflow.",
+      }
+    );
+
+    expect(getRuntimeReadinessIssues(runtimeGraph)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fieldKey: "builderTrace.openQuestionCount",
+        }),
+      ])
+    );
   });
 
   it("reports runtime blockers for unresolved builder-only workflow state", () => {
@@ -1507,6 +1575,103 @@ describe("agentic builder canvas-native UI", () => {
     expect(tray.match(/Recommended/g) ?? []).toHaveLength(1);
   });
 
+  it("dedupes equivalent catalog options inside a decision tab", () => {
+    const optionIds = [
+      "option-chronicle-age",
+      "option-chronicle-age-duplicate",
+      "option-chainlink-latest",
+      "option-chainlink-latest-duplicate",
+      "option-chronicle-simple",
+    ];
+    const duplicateProjection: BuilderProjection = {
+      ...projection,
+      candidateBranches: optionIds.map((optionId) => ({
+        ...projection.candidateBranches[0],
+        branchId: `branch-${optionId}`,
+        optionId,
+      })),
+      committed: {
+        ...projection.committed,
+        nodes: [
+          ...projection.committed.nodes,
+          {
+            dependsOn: ["step-1"],
+            id: "step-price",
+            kind: "read",
+            label: "Check current ETH market price",
+            requiredEntityIds: [],
+            status: "ready",
+          },
+        ],
+      },
+      options: [
+        {
+          ...projection.options[0],
+          candidateIds: ["native-chronicle/eth-usd-read-with-age"],
+          confidence: 0.95,
+          id: "option-chronicle-age",
+          stepId: "step-price",
+          title: "Use Chronicle ETH/USD read with age",
+        },
+        {
+          ...projection.options[0],
+          candidateIds: ["native-chronicle/eth-usd-read-with-age"],
+          confidence: 0.7,
+          id: "option-chronicle-age-duplicate",
+          stepId: "step-price",
+          title: "Chronicle: Read ETH/USD Value with Age",
+        },
+        {
+          ...projection.options[0],
+          candidateIds: ["protocol-chainlink-eth-usd-latest-round-data"],
+          confidence: 0.85,
+          id: "option-chainlink-latest",
+          stepId: "step-price",
+          title: "Use Chainlink latest round data for ETH/USD",
+        },
+        {
+          ...projection.options[0],
+          candidateIds: ["protocol-chainlink-eth-usd-latest-round-data"],
+          confidence: 0.75,
+          id: "option-chainlink-latest-duplicate",
+          stepId: "step-price",
+          title: "Chainlink: Get ETH/USD Latest Round Data",
+        },
+        {
+          ...projection.options[0],
+          candidateIds: ["native-chronicle/eth-usd-read"],
+          confidence: 0.8,
+          id: "option-chronicle-simple",
+          stepId: "step-price",
+          title: "Chronicle: Read ETH/USD Value",
+        },
+      ],
+    };
+
+    const tray = renderToStaticMarkup(
+      <DecisionTray
+        isPlanning={false}
+        onAnswerQuestion={vi.fn()}
+        onPreviewFocus={vi.fn()}
+        onPreviewPin={vi.fn()}
+        onReject={vi.fn()}
+        onRequestNativeCapability={vi.fn()}
+        onSelect={vi.fn()}
+        projection={duplicateProjection}
+      />
+    );
+
+    expect(tray).toContain("Choose price source");
+    expect(tray).toContain("Use Chronicle ETH/USD read with age");
+    expect(tray).toContain("Use Chainlink latest round data for ETH/USD");
+    expect(tray).toContain("Chronicle: Read ETH/USD Value");
+    expect(tray).not.toContain("option-chronicle-age-duplicate");
+    expect(tray).not.toContain("option-chainlink-latest-duplicate");
+    expect(
+      tray.match(/data-testid="builder-option-option-/g) ?? []
+    ).toHaveLength(3);
+  });
+
   it("classifies mixed option labels by the requirement they satisfy", () => {
     const semanticProjection: BuilderProjection = {
       ...projection,
@@ -1921,6 +2086,210 @@ describe("agentic builder canvas-native UI", () => {
     expect(persisted.edges).toEqual([
       expect.objectContaining({ id: "accepted-step-1-step-2" }),
     ]);
+  });
+
+  it("does not render edges whose endpoints are hidden by option deduping", () => {
+    const duplicateProjection: BuilderProjection = {
+      ...projection,
+      candidateBranches: [
+        {
+          ...projection.candidateBranches[0],
+          branchId: "branch-kept",
+          dashedEdges: [{ fromStepId: "step-price", toStepId: "future-kept" }],
+          greyNodes: [
+            {
+              dependsOn: ["step-price"],
+              id: "future-kept",
+              kind: "notify",
+              label: "Kept future step",
+              requiredEntityIds: [],
+              status: "planned",
+            },
+          ],
+          optionId: "option-kept",
+          status: "open",
+        },
+        {
+          ...projection.candidateBranches[0],
+          branchId: "branch-duplicate",
+          dashedEdges: [
+            { fromStepId: "step-price", toStepId: "future-duplicate" },
+          ],
+          greyNodes: [
+            {
+              dependsOn: ["step-price"],
+              id: "future-duplicate",
+              kind: "notify",
+              label: "Duplicate future step",
+              requiredEntityIds: [],
+              status: "planned",
+            },
+          ],
+          optionId: "option-duplicate",
+          status: "open",
+        },
+      ],
+      committed: {
+        ...projection.committed,
+        nodes: [
+          ...projection.committed.nodes,
+          {
+            dependsOn: ["step-1"],
+            id: "step-price",
+            kind: "read",
+            label: "Read ETH price",
+            requiredEntityIds: [],
+            status: "ready",
+          },
+        ],
+      },
+      options: [
+        {
+          ...projection.options[0],
+          candidateIds: ["native-chronicle/eth-usd-read-with-age"],
+          confidence: 0.9,
+          id: "option-kept",
+          stepId: "step-price",
+          title: "Chronicle: Read ETH/USD Value with Age",
+        },
+        {
+          ...projection.options[0],
+          candidateIds: ["native-chronicle/eth-usd-read-with-age"],
+          confidence: 0.7,
+          id: "option-duplicate",
+          stepId: "step-price",
+          title: "Use Chronicle ETH/USD read with age",
+        },
+      ],
+    };
+
+    const canvasProjection = projectBuilderToCanvas(duplicateProjection);
+    const nodeIds = new Set(canvasProjection.nodes.map((node) => node.id));
+
+    expect(nodeIds.has("future-kept")).toBe(true);
+    expect(nodeIds.has("future-duplicate")).toBe(false);
+    expect(canvasProjection.edges).toEqual(
+      canvasProjection.edges.filter(
+        (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target)
+      )
+    );
+  });
+
+  it("keeps preview edge IDs unique when a branch repeats the same edge", () => {
+    const duplicateEdgeProjection: BuilderProjection = {
+      ...projection,
+      candidateBranches: [
+        {
+          ...projection.candidateBranches[0],
+          branchId: "branch-duplicate-edges",
+          dashedEdges: [
+            { fromStepId: "step-price", toStepId: "future-price" },
+            { fromStepId: "step-price", toStepId: "future-price" },
+          ],
+          greyNodes: [
+            {
+              dependsOn: ["step-price"],
+              id: "future-price",
+              kind: "notify",
+              label: "Future price notification",
+              requiredEntityIds: [],
+              status: "planned",
+            },
+          ],
+          optionId: "option-price",
+          status: "open",
+        },
+      ],
+      committed: {
+        ...projection.committed,
+        nodes: [
+          ...projection.committed.nodes,
+          {
+            dependsOn: ["step-1"],
+            id: "step-price",
+            kind: "read",
+            label: "Read ETH price",
+            requiredEntityIds: [],
+            status: "ready",
+          },
+        ],
+      },
+      options: [
+        {
+          ...projection.options[0],
+          confidence: 0.9,
+          id: "option-price",
+          stepId: "step-price",
+          title: "Chronicle: Read ETH/USD Value with Age",
+        },
+      ],
+    };
+
+    const canvasProjection = projectBuilderToCanvas(duplicateEdgeProjection);
+    const edgeIds = canvasProjection.edges.map((edge) => edge.id);
+
+    expect(edgeIds).toHaveLength(new Set(edgeIds).size);
+  });
+
+  it("does not render duplicate preview nodes from repeated branch steps", () => {
+    const duplicateNodeProjection: BuilderProjection = {
+      ...projection,
+      candidateBranches: [
+        {
+          ...projection.candidateBranches[0],
+          branchId: "branch-duplicate-preview-nodes",
+          dashedEdges: [{ fromStepId: "step-price", toStepId: "future-price" }],
+          greyNodes: [
+            {
+              dependsOn: ["step-price"],
+              id: "future-price",
+              kind: "notify",
+              label: "Future price notification",
+              requiredEntityIds: [],
+              status: "planned",
+            },
+            {
+              dependsOn: ["step-price"],
+              id: "future-price",
+              kind: "notify",
+              label: "Duplicate future price notification",
+              requiredEntityIds: [],
+              status: "planned",
+            },
+          ],
+          optionId: "option-price",
+          status: "open",
+        },
+      ],
+      committed: {
+        ...projection.committed,
+        nodes: [
+          ...projection.committed.nodes,
+          {
+            dependsOn: ["step-1"],
+            id: "step-price",
+            kind: "read",
+            label: "Read ETH price",
+            requiredEntityIds: [],
+            status: "ready",
+          },
+        ],
+      },
+      options: [
+        {
+          ...projection.options[0],
+          confidence: 0.9,
+          id: "option-price",
+          stepId: "step-price",
+          title: "Chronicle: Read ETH/USD Value with Age",
+        },
+      ],
+    };
+
+    const canvasProjection = projectBuilderToCanvas(duplicateNodeProjection);
+    const nodeIds = canvasProjection.nodes.map((node) => node.id);
+
+    expect(nodeIds).toHaveLength(new Set(nodeIds).size);
   });
 
   it("hides the decision tray after planning completes with no active decisions", () => {
