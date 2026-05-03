@@ -8,11 +8,21 @@ This branch also explores local-first traceability for debugging product actions
 
 This is not meant to replace OpenTelemetry, DataDog, Sentry, or production monitoring. Those tools are still the right place for production observability. This is a local diagnostic layer for understanding one action in detail.
 
+![Live trace panel](./screenshots/hackathon-trace-panel.jpg)
+
+![Copy trace action](./screenshots/hackathon-copy-trace.jpg)
+
 ### Refactored Agentic Builder
 
 The notable refactor for the agentic builder lives in `packages/agentic-builder/src/core/builder-flow/`. That directory is the reference point for the new shape: domain policy, capability resolution, artifact/projection creation, readiness checks, runner helpers, harness steps, and action wrappers are split out instead of living in one large runtime file.
 
 The companion reference document is `intent-sdk/SKILL.md`. It explains the intent/harness approach this branch is moving toward: deterministic workflow ownership, explicit steps, resumable sessions, inspectable events, and cleaner agent-facing DX.
+
+![Agentic builder canvas](./screenshots/hackathon-agentic-builder.jpg)
+
+![Builder progress stream](./screenshots/hackathon-builder-progress.jpg)
+
+![Builder option selection](./screenshots/hackathon-builder-options.jpg)
 
 A Web3 workflow automation platform (forked from vercel-labs/workflow-builder-template) that enables users **and Agents** to create, manage, and execute blockchain automation workflows and tasks. Supports smart contract monitoring, token transfers, DeFi operations, and integrations with Discord, SendGrid, webhooks and more.
 
