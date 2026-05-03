@@ -1,3 +1,4 @@
+import type { HarnessStore } from "@keeperhub/intent-sdk";
 import type {
   BuilderAuthContext,
   BuilderEvent,
@@ -93,6 +94,13 @@ export type EventSinkPort = {
 export type ClockPort = { readonly now: () => string };
 export type IdPort = { readonly next: (prefix: string) => string };
 
+export type BuilderDiagnosticsPort = {
+  readonly harnessStoreFor?: <TInput = unknown>(
+    auth: BuilderAuthContext,
+    sessionId: string
+  ) => HarnessStore<TInput>;
+};
+
 export type BuilderPorts = {
   readonly ai: AiTemplateRunnerPort;
   readonly catalog: CatalogPort;
@@ -102,4 +110,5 @@ export type BuilderPorts = {
   readonly events: EventSinkPort;
   readonly clock: ClockPort;
   readonly ids: IdPort;
+  readonly diagnostics?: BuilderDiagnosticsPort;
 };

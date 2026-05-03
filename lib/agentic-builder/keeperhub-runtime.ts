@@ -2,11 +2,13 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAiSdkJsonTemplateRunner } from "@keeperhub/agentic-builder/ai-sdk";
 import { createBuilderRuntime } from "@keeperhub/agentic-builder/runtime";
+import type { BuilderAuthContext } from "@keeperhub/agentic-builder/schemas";
 import { createDeterministicTemplateRunner } from "@keeperhub/agentic-builder/templates";
 import { nanoid } from "nanoid";
 import { getOpenAICompatibleClientOptions } from "@/lib/openai-compatible";
 import { createKeeperHubCatalog } from "./keeperhub-catalog";
 import { createKeeperHubFeatureRequests } from "./keeperhub-feature-requests";
+import { createKeeperHubHarnessStore } from "./keeperhub-harness-store";
 import { createKeeperHubWorkflowMaterializer } from "./keeperhub-materializer";
 import { createKeeperHubBuilderStore } from "./keeperhub-store";
 import { createOperationRecorder } from "./operation-recorder";
@@ -47,4 +49,8 @@ export const keeperHubBuilderRuntime = createBuilderRuntime({
   events: createOperationRecorder(),
   clock: { now: () => new Date().toISOString() },
   ids: { next: (prefix) => `${prefix}_${nanoid(10)}` },
+  diagnostics: {
+    harnessStoreFor: <TInput>(auth: BuilderAuthContext) =>
+      createKeeperHubHarnessStore<TInput>(auth),
+  },
 });

@@ -1,0 +1,10 @@
+{
+  "expectedName": "eval-exec-v3-fixer",
+  "requiredPlaceholders": [
+    "executionRound",
+    "fixRound",
+    "fixSchema",
+    "requestJson",
+    "fixInputJson"
+  ]
+}

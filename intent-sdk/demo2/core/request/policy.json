@@ -1,0 +1,30 @@
+{
+  "defaultTask": "make this good",
+  "fallbackAssumptions": {
+    "default": "No explicit evaluator was provided; use score mode with evidence requirements.",
+    "exact": "An expected answer was provided; use exact-match evaluation."
+  },
+  "workflow": ["prepare", "run-loop", "result"],
+  "modes": {
+    "pass_fail": {
+      "successCriteria": [
+        "Complete the requested task.",
+        "Provide evidence for completion."
+      ],
+      "rubric": ["The implementation must pass every success criterion."]
+    },
+    "score": {
+      "successCriteria": [
+        "Complete the requested task.",
+        "Provide evidence for completion."
+      ],
+      "rubric": [
+        "The implementation must satisfy all success criteria with concrete evidence."
+      ]
+    },
+    "exact": {
+      "successCriteria": ["Return the expected answer exactly."],
+      "rubric": ["The output must match the expected answer exactly."]
+    }
+  }
+}

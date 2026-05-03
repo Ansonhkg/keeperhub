@@ -1,4 +1,9 @@
+import { type HarnessStore, InMemoryHarnessStore } from "@keeperhub/intent-sdk";
 import { describe, expect, it } from "vitest";
+import {
+  builderActionStepIds,
+  builderStartStepIds,
+} from "../src/core/builder-flow/steps";
 import type { AiTemplateRunInput, BuilderPorts } from "../src/core/ports/all";
 import type {
   BuilderAuthContext,
@@ -708,7 +713,10 @@ describe("agentic builder runtime", () => {
         candidate("native-slack/send-message", "Send Slack Message"),
       ])
     );
-    const projection = await runtime.startSession(auth, "Notify the team");
+    const projection = await runtime.startSession(
+      auth,
+      "Get ETH price every 15 mins and notify me"
+    );
 
     expect(projection.questions).toContainEqual(
       expect.objectContaining({
@@ -1557,6 +1565,48 @@ describe("agentic builder runtime", () => {
     expect(
       intentInputs.some(
         (input) => input.includes("Use Clerk") && input.includes("Create user")
+      )
+    ).toBe(true);
+  });
+
+  it("records start-session and mutation harness steps through diagnostics", async () => {
+    const store = new InMemoryHarnessStore();
+    const runtime = createBuilderRuntime({
+      ...createPorts(),
+      diagnostics: {
+        harnessStoreFor: <TInput>() => store as HarnessStore<TInput>,
+      },
+    });
+    const projection = await runtime.startSession(auth, "Notify the team");
+
+    const startCheckpoints = await store.listCheckpoints(projection.sessionId);
+    expect(startCheckpoints.map((checkpoint) => checkpoint.stepId)).toEqual([
+      builderStartStepIds.intentPlanner,
+      builderStartStepIds.requirementResolution,
+      builderStartStepIds.catalogSearch,
+      builderStartStepIds.candidateEvaluation,
+      builderStartStepIds.candidateRanking,
+      builderStartStepIds.optionGeneration,
+      builderStartStepIds.previewProjection,
+    ]);
+    expect(
+      (await store.listEvents(projection.sessionId)).some(
+        (event) => event.type === "builder.preview_projection.completed"
+      )
+    ).toBe(true);
+
+    await expect(
+      runtime.selectOption(auth, projection.sessionId, "missing-option")
+    ).rejects.toThrow("Unknown option");
+
+    expect(
+      (await store.listCheckpoints(projection.sessionId)).map(
+        (checkpoint) => checkpoint.stepId
+      )
+    ).toContain(builderActionStepIds.optionSelect);
+    expect(
+      (await store.listEvents(projection.sessionId)).some(
+        (event) => event.type === "builder.option.select.started"
       )
     ).toBe(true);
   });

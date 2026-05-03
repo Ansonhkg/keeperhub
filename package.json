@@ -48,7 +48,20 @@
     "profile:step": "tsx scripts/runtime/workflow_runtime_analysis/profile-step.ts",
     "profile:workflow": "tsx scripts/runtime/workflow_runtime_analysis/workflow-runner-profiled-bootstrap.ts",
     "profile:calibrate": "tsx scripts/runtime/workflow_runtime_analysis/calibrate-wasm-fuel.ts",
-    "profile:report": "tsx scripts/runtime/workflow_runtime_analysis/generate-report.ts"
+    "profile:report": "tsx scripts/runtime/workflow_runtime_analysis/generate-report.ts",
+    "intent:demo": "tsx intent-sdk/demo.ts",
+    "intent:demo1": "tsx intent-sdk/demo.ts",
+    "intent:demo2": "EVAL_EXEC_V3_BACKEND=demo tsx intent-sdk/demo2/adapters/cli/main.ts run",
+    "intent:mcp": "tsx intent-sdk/demo2/adapters/mcp/server.ts",
+    "intent:start": "pnpm intent:sidecar",
+    "intent:sidecar": "tsx intent-sdk/demo2/adapters/http/server.ts",
+    "intent:test": "vitest run intent-sdk/src/sdk/*.test.ts intent-sdk/demo2/core/*.test.ts intent-sdk/demo2/core/services/*.test.ts intent-sdk/demo2/infrastructure/workers/*.test.ts intent-sdk/demo2/runtime/operations/*.test.ts",
+    "intent:check": "tsc -p intent-sdk/tsconfig.json --noEmit",
+    "intent:check:graph": "node /Users/anson/Projects/graph-sdk/packages/graph-cli/src/check.js --json --profile graph-native --module ./intent-sdk/demo2/graph/graph-structure.ts --source-config ./intent-sdk/demo2/graph/graph-source.config.ts",
+    "intent:check:graph:operation": "node /Users/anson/Projects/graph-sdk/packages/graph-cli/src/check.js --json --profile graph-native-operation --module ./intent-sdk/demo2/graph/graph-structure.ts --source-config ./intent-sdk/demo2/graph/graph-source.config.ts",
+    "intent:smoke": "EVAL_EXEC_V3_BACKEND=demo tsx intent-sdk/demo2/adapters/cli/main.ts run \"make this good\"",
+    "intent:smoke:file-state": "EVAL_EXEC_V3_BACKEND=demo EVAL_EXEC_V3_STATE_BACKEND=file tsx intent-sdk/demo2/adapters/cli/main.ts run \"make this good\"",
+    "intent:smoke:operations": "tsx intent-sdk/demo2/runtime/operations/smoke.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.74",

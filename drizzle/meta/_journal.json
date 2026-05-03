@@ -449,6 +449,13 @@
       "when": 1777496809266,
       "tag": "0063_gifted_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1777770996025,
+      "tag": "0064_smart_vanisher",
+      "breakpoints": true
     }
   ]
 }

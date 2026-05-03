@@ -146,5 +146,6 @@ reports/
 
 .mcp.json
 packages/agentic-builder/node_modules
+intent-sdk/data/
 output/playwright
 drizzle

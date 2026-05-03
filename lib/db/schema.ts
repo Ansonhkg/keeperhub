@@ -338,6 +338,80 @@ export const builderMaterializations = pgTable(
   ]
 );
 
+export const harnessSessions = pgTable(
+  "harness_sessions",
+  {
+    runId: text("run_id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    input: jsonb("input").notNull().$type<unknown>(),
+    status: text("status").notNull(),
+    snapshot: jsonb("snapshot").notNull().$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [index("idx_harness_sessions_org").on(table.organizationId)]
+);
+
+export const harnessEvents = pgTable(
+  "harness_events",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => harnessSessions.runId, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    eventIndex: integer("event_index").notNull(),
+    event: jsonb("event").notNull().$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_harness_events_run").on(table.runId),
+    uniqueIndex("idx_harness_events_run_index").on(
+      table.runId,
+      table.eventIndex
+    ),
+  ]
+);
+
+export const harnessCheckpoints = pgTable(
+  "harness_checkpoints",
+  {
+    checkpointId: text("checkpoint_id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => harnessSessions.runId, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    checkpoint: jsonb("checkpoint").notNull().$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [index("idx_harness_checkpoints_run").on(table.runId)]
+);
+
+export const harnessActions = pgTable(
+  "harness_actions",
+  {
+    actionId: text("action_id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => harnessSessions.runId, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    action: jsonb("action").notNull().$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [index("idx_harness_actions_run").on(table.runId)]
+);
+
 // Integrations table for storing user credentials
 export const integrations = pgTable("integrations", {
   id: text("id")

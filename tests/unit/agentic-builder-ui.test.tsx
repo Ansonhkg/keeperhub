@@ -1662,6 +1662,7 @@ describe("agentic builder canvas-native UI", () => {
     );
 
     expect(tray).toContain("Choose price source");
+    expect(tray).toContain("3 options");
     expect(tray).toContain("Use Chronicle ETH/USD read with age");
     expect(tray).toContain("Use Chainlink latest round data for ETH/USD");
     expect(tray).toContain("Chronicle: Read ETH/USD Value");

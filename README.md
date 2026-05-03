@@ -1,5 +1,19 @@
 # KeeperHub
 
+## 🛠️ Hackathon Notes
+
+### Traceability
+
+This branch also explores local-first traceability for debugging product actions end to end. The idea is simple: the browser knows the user clicked something, the API knows a request happened, auth knows who made it, and the workflow runner knows which node executed. Usually those facts are separate. The trace tool puts them in one place so an action can be followed across UI, request, server, auth, and workflow execution, then copied into an agent chat for debugging or optimization.
+
+This is not meant to replace OpenTelemetry, DataDog, Sentry, or production monitoring. Those tools are still the right place for production observability. This is a local diagnostic layer for understanding one action in detail.
+
+### Refactored Agentic Builder
+
+The notable refactor for the agentic builder lives in `packages/agentic-builder/src/core/builder-flow/`. That directory is the reference point for the new shape: domain policy, capability resolution, artifact/projection creation, readiness checks, runner helpers, harness steps, and action wrappers are split out instead of living in one large runtime file.
+
+The companion reference document is `intent-sdk/SKILL.md`. It explains the intent/harness approach this branch is moving toward: deterministic workflow ownership, explicit steps, resumable sessions, inspectable events, and cleaner agent-facing DX.
+
 A Web3 workflow automation platform (forked from vercel-labs/workflow-builder-template) that enables users **and Agents** to create, manage, and execute blockchain automation workflows and tasks. Supports smart contract monitoring, token transfers, DeFi operations, and integrations with Discord, SendGrid, webhooks and more.
 
 ## Core Value

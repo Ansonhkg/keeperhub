@@ -30,6 +30,14 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./"),
+      "@keeperhub/intent-sdk": path.resolve(
+        __dirname,
+        "./intent-sdk/src/sdk/index.ts"
+      ),
+      "@keeperhub/intent-sdk/": path.resolve(
+        __dirname,
+        "./intent-sdk/src/sdk/"
+      ),
       "@keeperhub/agentic-builder/http": path.resolve(
         __dirname,
         "./packages/agentic-builder/src/adapters/http/handlers.ts"

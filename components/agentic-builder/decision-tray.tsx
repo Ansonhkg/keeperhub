@@ -228,6 +228,10 @@ function displayOptionTitle(groupId: string, option: BuilderOption): string {
   return `${title} as the price source`;
 }
 
+function optionCountLabel(count: number): string {
+  return `${count} ${count === 1 ? "option" : "options"}`;
+}
+
 function normalizedTextKey(value: string): string {
   return value
     .toLowerCase()
@@ -631,8 +635,8 @@ export function DecisionTray({
                   value={group.id}
                 >
                   {group.label}
-                  <Badge className="h-5 px-1.5" variant="outline">
-                    {group.options.length}
+                  <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
+                    {optionCountLabel(group.options.length)}
                   </Badge>
                 </TabsTrigger>
               ))}

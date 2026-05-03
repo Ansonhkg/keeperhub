@@ -1,0 +1,9 @@
+{
+  "expectedName": "eval-exec-v3-evaluator",
+  "requiredPlaceholders": [
+    "round",
+    "evaluationSchema",
+    "requestJson",
+    "attemptJson"
+  ]
+}

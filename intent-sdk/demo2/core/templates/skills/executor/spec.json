@@ -1,0 +1,4 @@
+{
+  "expectedName": "eval-exec-v3-executor",
+  "requiredPlaceholders": ["round", "attemptSchema", "prompt", "requestJson"]
+}

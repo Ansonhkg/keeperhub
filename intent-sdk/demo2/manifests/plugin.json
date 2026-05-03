@@ -1,0 +1,11 @@
+{
+  "key": "eval-exec-loop-v3",
+  "title": "Eval Exec Loop v3",
+  "version": "0.1.0",
+  "description": "TypeScript-first, Zod-backed, graph-native eval-exec loop.",
+  "role": "workflow-runtime",
+  "defaultPort": 4323,
+  "supports": ["cli", "http", "mcp"],
+  "loading": { "mode": "mountable" },
+  "runtimeEntry": "./demo2/plugin/module.ts"
+}

@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node", "vitest/globals"],
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "demo.ts",
+    "demo1/**/*.ts",
+    "demo2/**/*.ts",
+    "index.ts",
+    "src/**/*.ts",
+    "src/**/*.d.ts"
+  ]
+}

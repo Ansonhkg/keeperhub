@@ -1,0 +1,9 @@
+{
+  "expectedName": "eval-exec-v3-prepare",
+  "requiredPlaceholders": [
+    "requestSchema",
+    "resolvedWorkdir",
+    "intent",
+    "partialRequest"
+  ]
+}
